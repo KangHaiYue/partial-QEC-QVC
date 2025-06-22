@@ -389,7 +389,7 @@ def two_qubit_noise_job(i: int) -> None:
     return
 
 
-def gaussian_job(sigma_index: int, mu:float = 0) -> None:
+def gaussian_job(sigma: float, mu:float = 0) -> None:
     # Import required libraries
     import pennylane as qml
     from pennylane import numpy as np
@@ -450,13 +450,6 @@ def gaussian_job(sigma_index: int, mu:float = 0) -> None:
 
     # Step 5: Training Loop
     # ---------------------
-
-    standard_deviations = np.logspace(-5,np.log10(np.pi/4),6)
-
-    sigma_index = 0
-    print(sigma_index, flush=True)
-
-    sigma = standard_deviations[sigma_index]
     print(f'standard deviation: {sigma}', flush=True)
 
     results = {}
@@ -567,7 +560,7 @@ def gaussian_job(sigma_index: int, mu:float = 0) -> None:
 
     #torch.save(state, f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol{i}_param_states_part1.pth.tar')
 
-    with open(f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_gaussian_pi2mean{sigma_index}.pkl', 'wb') as file:
+    with open(f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_gaussian_pi2mean{sigma}.pkl', 'wb') as file:
         pickle.dump(results, file, protocol=pickle.HIGHEST_PROTOCOL)
     
     return
