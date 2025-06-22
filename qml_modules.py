@@ -309,7 +309,7 @@ class HybridModel(nn.Module):
         #return self.quantum(x)
         #return self.sigmoid_activation(x)
     
-    def gen_depolarising_noise(self, single_qubit_only: bool = True, **kwargs) -> qml.NoiseModel:
+    def gen_depolarising_noise(self, single_qubit_only: bool|str = True, **kwargs) -> qml.NoiseModel:
         
         @qml.BooleanFn
         def single_qubit_ops_condition(op):
