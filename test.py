@@ -7,7 +7,7 @@ import torch.nn as nn
 from superop import SuperOpTools
 from scipy.linalg import expm, logm
 import scipy.stats
-from typing import Union
+from typing import Union, Any
 #import pickle
 
 
@@ -251,12 +251,6 @@ class HybridModel(nn.Module):
             noise_model = self.gen_depolarising_noise(single_qubit_only='depol and damping',
                                                       p_depolarising = kwargs['p_depolarising'],
                                                       p_damping = kwargs['p_damping'])
-        
-        elif noise_model == 'depol and generalised damping':
-            noise_model = self.gen_depolarisinga_noise(single_qubit_only='depol and generalised damping',
-                                                      p_depolarising = kwargs['p_depolarising'],
-                                                      gamma = kwargs['gamma'],
-                                                      p_damping = kwargs['p_damping'])
         elif noise_model == 'pauli noises':
             noise_model = self.gen_pauli_noises(pX_single = kwargs['pX_single'],
                                                 pY_single = kwargs['pY_single'],
@@ -272,9 +266,6 @@ class HybridModel(nn.Module):
         
         elif noise_model == 'amplitude damping':
             noise_model = self.gen_amplitude_damping_noise(p_damping=kwargs['p_damping'])
-        
-        elif noise_model == 'generalised damping':
-            noise_model = self.gen_generalised_damping(gamma=kwargs['gamma'], p_damping=kwargs['p_damping'])
         
         elif noise_model == 'thermal':
             noise_model = self.gen_thermal_noise(p_e=kwargs['pe'], t1=kwargs['t1'], t2=kwargs['t2'], tg=kwargs['tg'])
@@ -329,12 +320,7 @@ class HybridModel(nn.Module):
         
         def depol_and_damping(op, **params):
             depolarising_channel_kraus_reps = qml.DepolarizingChannel.compute_kraus_matrices(params['p_depolarising'])
-            
-            if single_qubit_only == 'depol and damping':
-                amplitude_damping_channel_kraus_reps = qml.AmplitudeDamping.compute_kraus_matrices(params['p_damping'])
-            
-            elif single_qubit_only == 'depol and generalised damping':
-                amplitude_damping_channel_kraus_reps = qml.GeneralizedAmplitudeDamping.compute_kraus_matrices(gamma=params['gamma'], p=params['p_damping'])
+            amplitude_damping_channel_kraus_reps = qml.AmplitudeDamping.compute_kraus_matrices(params['p_damping'])
             
             depolarising_channel_superop_reps = SuperOpTools.kraus2superop(depolarising_channel_kraus_reps)
             amplitude_damping_channel_superop_reps = SuperOpTools.kraus2superop(amplitude_damping_channel_kraus_reps)
@@ -424,7 +410,7 @@ class HybridModel(nn.Module):
                 {single_qubit_ops_condition: depol_err_single,}
                 )
         
-        elif single_qubit_only == 'depol and damping' or single_qubit_only == 'depol and generalised damping':
+        elif single_qubit_only == 'depol and damping':
             metadata = kwargs.copy()
             noise_model = qml.NoiseModel(
                 {single_qubit_ops_condition: depol_and_damping,}, **metadata
@@ -556,26 +542,7 @@ class HybridModel(nn.Module):
                 )
             
             return noise_model
-    
-    def gen_generalised_damping(self, **kwargs) -> qml.NoiseModel:
             
-            condition = qml.noise.wires_in(list(range(self.num_qubits)))
-            
-            
-            def generalised_damping(op, **decay_rates):
-                for wire in range(self.num_qubits):
-                    qml.GeneralizedAmplitudeDamping(
-                        gamma=decay_rates['gamma'],
-                        p=decay_rates['p_damping'], 
-                        wires=wire
-                        )
-            
-            metadata = kwargs.copy()
-            noise_model = qml.NoiseModel(
-                {condition: generalised_damping}, **metadata
-                )
-            
-            return noise_model
             
     #def gen_thermal_noise(self, t1, t2, tg):
     #    

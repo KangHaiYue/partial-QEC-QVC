@@ -27,6 +27,11 @@ def main(*args, noise_model: str) -> None:
     elif noise_model == "depol and damping":
         print(f"Using depolarizing and damping noise model with damping strength {args}")
         depol_and_damping_job(*args)
+    
+    elif noise_model == "depol and generalised damping":
+        print(f"Using depolarizing and damping noise model with generalised damping strengths p_damping:{args[0]}, gamma:{args[1]}")
+        depol_and_damping_job(*args)
+        
     else:
         raise ValueError(f"Unknown noise model: {noise_model}")
     
