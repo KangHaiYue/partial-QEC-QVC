@@ -798,7 +798,7 @@ def depol_and_damping_job(i_ : int, i : int = 4) -> None:
     return
 
 
-def depol_and_generalised_damping_job(p_damping : int, gamma : float, i : int = 4) -> None:
+def depol_and_generalised_damping_job(p_damping : float, gamma : float, i : int = 4) -> None:
     """
     function to run the depolarising and damping noise job with quantum circuits.
     Note classical layer is not used in this job.
