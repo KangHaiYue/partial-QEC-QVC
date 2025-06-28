@@ -1017,7 +1017,7 @@ def depol_and_generalised_damping_job(p_damping : float, gamma : float, i : int 
 
     #torch.save(state, f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol{i}_param_states_part1.pth.tar')
 
-    with open(f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol_and_generalised_damping{i}_{gamma:.2f}.pkl', 'wb') as file:
+    with open(f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol_and_generalised_damping{i}_{gamma:.2e}_{p_damping:.2e}.pkl', 'wb') as file:
         pickle.dump(results, file, protocol=pickle.HIGHEST_PROTOCOL)
     
     return

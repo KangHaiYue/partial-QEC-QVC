@@ -1,5 +1,5 @@
 # Import required libraries
-
+import numpy as np
 import torch
 from qml_modules import *
 import os
@@ -73,3 +73,23 @@ def load_checkpoint(model, optimizer, device, filename='noisy_QNN_test/checkpoin
                 state[k] = v.to(device)
 
     return model.to(device), optimizer, last_image_index
+
+
+def calc_amplitude_damping_params(decay_rate: float, relative_T: float, dt: float) -> tuple:
+    """
+    Calculate the amplitude damping parameters based on decay rate, temperature, and time step.
+    
+    Args:
+        decay_rate (float): The decay rate of the amplitude damping at 0 K
+        relative (float): The relative temperature = hw/2kT.
+        dt (float): The time step.
+    
+    Returns:
+        tuple: Parameters for amplitude damping.
+    """
+    p_damping = np.exp(relative_T)/np.cosh(relative_T)
+    
+    Gamma = decay_rate/np.tanh(relative_T)
+    gamma = 1 - np.exp(-Gamma * dt)
+    
+    return p_damping, gamma
