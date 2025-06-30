@@ -39,9 +39,9 @@ def main(*args, noise_model: str) -> None:
 if __name__ == "__main__":
     #import torch
     #print(torch.cuda.is_available())
-    p_damping, gamma = calc_amplitude_damping_params(decay_rate = 0.5, 
+    p_damping, gamma, Gammda_dt = calc_amplitude_damping_params(decay_rate = 0.5, 
                                                      relative_T = 1.0, 
                                                      dt = 3.2e-9*1.5*np.log2(1/1e-4))
-    print(f"p_damping: {p_damping}, gamma: {gamma}", flush=True)
+    print(f"p_damping: {p_damping}, gamma: {gamma}, Gamma*dt: {Gammda_dt}", flush=True)
     # Example usage
     main(p_damping, gamma, 4, noise_model="depol and generalised damping")

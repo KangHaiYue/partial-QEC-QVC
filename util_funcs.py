@@ -87,9 +87,9 @@ def calc_amplitude_damping_params(decay_rate: float, relative_T: float, dt: floa
     Returns:
         tuple: Parameters for amplitude damping.
     """
-    p_damping = np.exp(relative_T)/np.cosh(relative_T)
+    p_damping = np.exp(relative_T)/(2*np.cosh(relative_T))
     
     Gamma = decay_rate/np.tanh(relative_T)
     gamma = 1 - np.exp(-Gamma * dt)
     
-    return p_damping, gamma
+    return p_damping, gamma, Gamma * dt
