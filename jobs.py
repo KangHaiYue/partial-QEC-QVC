@@ -881,7 +881,8 @@ def depol_and_generalised_damping_job(p_damping : float, gamma : float, i : int 
     #damping_rates = np.logspace(-5,np.log10(3/4),10)
     #print(i_, flush=True)
     #p_damping = damping_rates[i_]
-    print(f'damping noise rate: {p_damping}', flush=True)
+    print(f'damping probability (p_): {p_damping}', flush=True)
+    print(f'damping strength (gamma): {gamma}', flush=True)
 
     results = {}
     
