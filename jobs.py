@@ -148,7 +148,7 @@ def depolarising_job(i: int) -> None:
 
                             output = model(data_)
                             if torch.any(torch.isnan(output)):
-                                print(f'test nan encountered', flush=True)
+                                print('test nan encountered', flush=True)
                                 del output
                                 continue
                                 
@@ -156,7 +156,7 @@ def depolarising_job(i: int) -> None:
                             _, predicted = torch.max(output.data, 1)
                             total += target_.size(0)
                             correct += (predicted.to(device) == target_).sum().item()
-                            print(f'test prcoessed', flush=True)
+                            print('test prcoessed', flush=True)
                 #if batch_idx % 5 == 0:
                 print(f'Test Accuracy: {100 * correct / total:.2f}%\n', flush=True)
                 accuracies[trained_images] = correct/total
@@ -352,7 +352,7 @@ def two_qubit_noise_job(i: int) -> None:
 
                             output = model(data_)
                             if torch.any(torch.isnan(output)):
-                                print(f'test nan encountered', flush=True)
+                                print('test nan encountered', flush=True)
                                 del output
                                 continue
                                 
@@ -360,7 +360,7 @@ def two_qubit_noise_job(i: int) -> None:
                             _, predicted = torch.max(output.data, 1)
                             total += target_.size(0)
                             correct += (predicted.to(device) == target_).sum().item()
-                            print(f'test prcoessed', flush=True)
+                            print('test prcoessed', flush=True)
                 #if batch_idx % 5 == 0:
                 print(f'Test Accuracy: {100 * correct / total:.2f}%\n', flush=True)
                 accuracies[trained_images] = correct/total
@@ -392,7 +392,7 @@ def two_qubit_noise_job(i: int) -> None:
 def gaussian_job(sigma: float, mu:float = 0) -> None:
     # Import required libraries
     import pennylane as qml
-    from pennylane import numpy as np
+    #from pennylane import numpy as np
     import torch
     import torch.nn as nn
     import torch.optim as optim
@@ -530,7 +530,7 @@ def gaussian_job(sigma: float, mu:float = 0) -> None:
 
                             output = model(data_)
                             if torch.any(torch.isnan(output)):
-                                print(f'test nan encountered', flush=True)
+                                print('test nan encountered', flush=True)
                                 del output
                                 continue
                                 
@@ -538,7 +538,7 @@ def gaussian_job(sigma: float, mu:float = 0) -> None:
                             _, predicted = torch.max(output.data, 1)
                             total += target_.size(0)
                             correct += (predicted.to(device) == target_).sum().item()
-                            print(f'test prcoessed', flush=True)
+                            print('test prcoessed', flush=True)
                 #if batch_idx % 5 == 0:
                 print(f'Test Accuracy: {100 * correct / total:.2f}%\n', flush=True)
                 accuracies[trained_images] = correct/total
@@ -751,7 +751,7 @@ def depol_and_damping_job(i_ : int, i : int = 4) -> None:
 
                             output = model(data_)
                             if torch.any(torch.isnan(output)):
-                                print(f'test nan encountered', flush=True)
+                                print('test nan encountered', flush=True)
                                 del output
                                 continue
                                 
@@ -759,7 +759,7 @@ def depol_and_damping_job(i_ : int, i : int = 4) -> None:
                             _, predicted = torch.max(output.data, 1)
                             total += target_.size(0)
                             correct += (predicted.to(device) == target_).sum().item()
-                            print(f'test prcoessed', flush=True)
+                            print('test prcoessed', flush=True)
                 #if batch_idx % 5 == 0:
                 print(f'Test Accuracy: {100 * correct / total:.2f}%\n', flush=True)
                 accuracies[trained_images] = correct/total
@@ -977,7 +977,7 @@ def depol_and_generalised_damping_job(p_damping : float, gamma : float, i : int 
 
                             output = model(data_)
                             if torch.any(torch.isnan(output)):
-                                print(f'test nan encountered', flush=True)
+                                print('test nan encountered', flush=True)
                                 del output
                                 continue
                                 
@@ -985,7 +985,7 @@ def depol_and_generalised_damping_job(p_damping : float, gamma : float, i : int 
                             _, predicted = torch.max(output.data, 1)
                             total += target_.size(0)
                             correct += (predicted.to(device) == target_).sum().item()
-                            print(f'test prcoessed', flush=True)
+                            print('test prcoessed', flush=True)
                 #if batch_idx % 5 == 0:
                 print(f'Test Accuracy: {100 * correct / total:.2f}%\n', flush=True)
                 accuracies[trained_images] = correct/total
