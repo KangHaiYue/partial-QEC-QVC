@@ -253,7 +253,7 @@ class HybridModel(nn.Module):
                                                       p_damping = kwargs['p_damping'])
         
         elif noise_model == 'depol and generalised damping':
-            noise_model = self.gen_depolarisinga_noise(single_qubit_only='depol and generalised damping',
+            noise_model = self.gen_depolarising_noise(single_qubit_only='depol and generalised damping',
                                                       p_depolarising = kwargs['p_depolarising'],
                                                       gamma = kwargs['gamma'],
                                                       p_damping = kwargs['p_damping'])

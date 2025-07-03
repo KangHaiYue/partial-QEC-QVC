@@ -75,7 +75,7 @@ def load_checkpoint(model, optimizer, device, filename='noisy_QNN_test/checkpoin
     return model.to(device), optimizer, last_image_index
 
 
-def calc_amplitude_damping_params(decay_rate: float, relative_T: float, dt: float) -> tuple:
+def calc_amplitude_damping_params(decay_rate: float, relative_T: int|float, dt: float) -> tuple:
     """
     Calculate the amplitude damping parameters based on decay rate, temperature, and time step.
     
