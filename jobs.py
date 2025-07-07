@@ -798,7 +798,7 @@ def depol_and_damping_job(i_ : int, i : int = 4) -> None:
     return
 
 
-def depol_and_generalised_damping_job(p_damping : float, gamma : float, i : int = 4) -> None:
+def depol_and_generalised_damping_job(p_damping : float, gamma : float, p_depolarising : float = 1.46789129e-03) -> None:
     """
     function to run the depolarising and damping noise job with quantum circuits.
     Note classical layer is not used in this job.
@@ -872,10 +872,6 @@ def depol_and_generalised_damping_job(p_damping : float, gamma : float, i : int 
 
     # Step 5: Training Loop
     # ---------------------
-
-    depolarising_rates = np.logspace(-5,np.log10(3/4),10)
-    print(i, flush=True)
-    p_depolarising = depolarising_rates[i]
     print(f'depolarising noise rate: {p_depolarising}', flush=True)
 
     #damping_rates = np.logspace(-5,np.log10(3/4),10)
@@ -1018,7 +1014,7 @@ def depol_and_generalised_damping_job(p_damping : float, gamma : float, i : int 
 
     #torch.save(state, f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol{i}_param_states_part1.pth.tar')
 
-    with open(f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol_and_generalised_damping{i}_{gamma:.2e}_{p_damping:.2e}.pkl', 'wb') as file:
+    with open(f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol_and_generalised_damping{p_depolarising:.2e}_{gamma:.2e}_{p_damping:.2e}.pkl', 'wb') as file:
         pickle.dump(results, file, protocol=pickle.HIGHEST_PROTOCOL)
     
     return
