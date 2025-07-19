@@ -1,4 +1,4 @@
-def depolarising_job(i: int) -> None:
+def depolarising_job(p_depolarising: float) -> None:
     """    
     function to run the depolarising noise job with quantum circuits.
     """
@@ -63,12 +63,12 @@ def depolarising_job(i: int) -> None:
 
     # Step 5: Training Loop
     # ---------------------
-    depolarising_rates = np.logspace(-5,np.log10(3/4),10)
+    #depolarising_rates = np.logspace(-5,np.log10(3/4),10)
 
     #i = 0
-    print(i, flush=True)
+    #print(i, flush=True)
 
-    p_depolarising = depolarising_rates[i]
+    #p_depolarising = depolarising_rates[i]
     print(f'depolarising noise rate: {p_depolarising}', flush=True)
     #sigma = standard_deviations[i]
     #print(f'standard deviation: {sigma}', flush=True)
@@ -116,13 +116,15 @@ def depolarising_job(i: int) -> None:
             gradients_linear_weights = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
             gradients_linear_offsets = optimizer.param_groups[0]['params'][1].grad.data.cpu().numpy()
             gradients_quantum = optimizer.param_groups[0]['params'][2].grad.data.cpu().numpy()
-            # if no classical layer
-            #gradients_quantum = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            
             gradients_list.append({'linear weights': gradients_linear_weights,
                                     'linear offsets': gradients_linear_offsets,
                                     'quantum': gradients_quantum}
                                     )
-            #gradients_list.append(gradients)
+            
+            # if no classical layer
+            #gradients_quantum = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            #gradients_list.append({'quantum': gradients_quantum})
 
             loss_values.append(loss)
             training_samples.append(training_samples[-1]+len(data))
@@ -179,7 +181,7 @@ def depolarising_job(i: int) -> None:
 
     #torch.save(state, f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol{i}_param_states_part1.pth.tar')
 
-    with open(f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol{i}.pkl', 'wb') as file:
+    with open(f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol_{p_depolarising:.2e}.pkl', 'wb') as file:
         pickle.dump(results, file, protocol=pickle.HIGHEST_PROTOCOL)
         
     return
@@ -255,10 +257,12 @@ def two_qubit_noise_job(i: int) -> None:
 
     depolarising_rates = np.logspace(-5,np.log10(3/4),10)
 
-    i = 0
     print(i, flush=True)
-
-    p_depolarising = depolarising_rates[i]
+    if i == -1:
+        p_depolarising = 0
+    else:
+        p_depolarising = depolarising_rates[i]
+        
     print(f'depolarising noise rate: {p_depolarising}', flush=True)
 
     results = {}
