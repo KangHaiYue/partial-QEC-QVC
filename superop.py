@@ -25,7 +25,7 @@ class SuperOpTools:
         return superop
     
     @staticmethod
-    def superop2kraus(superop, tol: float = 1e-10) -> list:
+    def superop2kraus(superop: np.ndarray, tol: float = 1e-10) -> list:
         """Convert a superoperator to a list of Kraus operators"""
         # Get the number of qubits from the superoperator shape
         dim_original_kraus = int(np.sqrt(superop.shape[0]))
@@ -38,6 +38,18 @@ class SuperOpTools:
         
         return [np.lib.scimath.sqrt(eigval) * SuperOpTools.unvec(np.array([evec]).T) 
                 for eigval, evec in zip(eigvals, eigvecs.T) if abs(eigval) > tol]
+    
+    @staticmethod
+    def superop2choi(superop: np.ndarray) -> np.ndarray:
+        """
+        Convert a superoperator to its Choi matrix form.
+        :param superop: The superoperator as a square numpy array.
+        :return: The Choi matrix as a numpy array.
+        """
+        dim = int(np.sqrt(superop.shape[0]))
+        # Reshape and swap axes to get the Choi matrix
+        choi = np.reshape(superop, [dim, dim, dim, dim]).swapaxes(0, 3).reshape([dim**2, dim**2])
+        return choi
     
     @staticmethod
     def unvec(vector) -> np.ndarray:
