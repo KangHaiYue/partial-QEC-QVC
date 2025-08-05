@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torch.types import Tensor
+from torch import Tensor
 
 class SmoothedPQCLoss(nn.Module):
     def __init__(self):
