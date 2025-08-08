@@ -3,8 +3,45 @@ import numpy as np
 import torch
 from qml_modules import *
 import os
+import math
+from mpi4py import MPI
 
 #torch.autograd.set_detect_anomaly(True) 
+# MPI-based parallel batch processing for CPU
+def process_batch_mpi(model, data, target, batch_size, batch_idx, criterion, comm, rank, size):
+    
+    local_loss = 0
+    nan_counts = 0
+    
+    minibatch_size = int(math.ceil(batch_size/size))
+    
+    # Process one sample at a time
+    for i in range(0, batch_size, minibatch_size):
+        mini_data = data[i:i+minibatch_size]  # Keep batch dimension (shape [1, 16])
+        mini_target = target[i:i+minibatch_size]
+        #print(mini_target, flush=True)
+        # Forward pass with gradient tracking
+        output = model(mini_data)
+        
+        loss = criterion(output, mini_target)
+        
+        #print(f'output: {output}', flush=True)
+        print(f'{batch_idx * batch_size + i + minibatch_size} done', flush=True)
+        
+        # Accumulate gradients (scaled by 1/batch_size)
+        loss = loss / batch_size * len(mini_data)  # Scale loss for gradient accumulation
+        loss.backward()  # Gradients accumulate across samples
+        local_loss += loss.item()
+    
+    total_loss = comm.allreduce(local_loss, op=MPI.SUM)
+    
+    for param in model.parameters():
+        if param.grad is not None:
+            comm.Allreduce(MPI.IN_PLACE, param.grad.data, op=MPI.SUM)
+            param.grad.data /= size
+            
+    return total_loss, nan_counts
+
 
 # Modified evaluation and training code with per-sample processing
 def process_batch(model, data, target, batch_size, batch_idx, minibatch_size, criterion):

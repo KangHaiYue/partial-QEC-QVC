@@ -33,7 +33,7 @@ class SmoothedPQCLoss(nn.Module):
         
         
         #return -torch.sum(target_inv_CDFs - largest_non_target_inv_CDFs)
-        return torch.sum(largest_non_target_probs - target_probs)/batch_size
+        return torch.sum(torch.log(largest_non_target_probs) - torch.log(target_probs))/batch_size
         
         #cross_entropy = torch.sum(torch.Tensor.log(nn.functional.softmax(values,dim=1))*targets)/len(values)
         #return cross_entropy - mean_variance

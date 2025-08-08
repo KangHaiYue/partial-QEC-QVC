@@ -1,6 +1,6 @@
 import numpy as np
 from util_funcs import calc_amplitude_damping_params
-from jobs import depolarising_job, two_qubit_noise_job, gaussian_job, depol_and_damping_job, depol_and_generalised_damping_job
+from jobs import depolarising_job, two_qubit_noise_job, gaussian_job, depol_and_damping_job, depol_and_generalised_damping_job, test_job
 
 def main(*args, noise_model: str) -> None:
     """
@@ -32,7 +32,10 @@ def main(*args, noise_model: str) -> None:
     elif noise_model == "depol and generalised damping":
         print(f"Using depolarizing and damping noise model with generalised damping strengths p_damping:{args[0]}, gamma:{args[1]}")
         depol_and_generalised_damping_job(*args)
-        
+    
+    elif noise_model == "test":
+        print(f"Using test noise model with strength {args}")
+        test_job(*args)
     else:
         raise ValueError(f"Unknown noise model: {noise_model}")
 
