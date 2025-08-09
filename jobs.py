@@ -1,23 +1,23 @@
+# Import required libraries
+import pennylane as qml
+from pennylane import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader, Subset
+from qml_modules import HybridModel
+from util_funcs import process_batch, process_batch_cpu_multiprocessing
+from custom_loss_functions import SmoothedPQCLoss
+import pickle
+from multiprocessing import Pool
+
+
 def depolarising_cpu_parallel_job(p_depolarising: float) -> None:
     """    
     function to run the depolarising noise job with quantum circuits.
     """
     
-    # Import required libraries
-    import pennylane as qml
-    from pennylane import numpy as np
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-    from torchvision import datasets, transforms
-    from torch.utils.data import DataLoader, Subset
-    from qml_modules import HybridModel
-    from util_funcs import process_batch_cpu_multiprocessing
-    from custom_loss_functions import SmoothedPQCLoss
-    import pickle
-    from multiprocessing import Pool
-    
-
     # Check CUDA availability
     device = torch.device("cpu")
     print(f"Using device: {device}", flush=True)
@@ -185,20 +185,6 @@ def depolarising_smoothedPQC_job(p_depolarising: float) -> None:
     function to run the depolarising noise job with quantum circuits.
     """
     
-    # Import required libraries
-    import pennylane as qml
-    from pennylane import numpy as np
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-    from torchvision import datasets, transforms
-    from torch.utils.data import DataLoader, Subset
-    from qml_modules import HybridModel
-    from util_funcs import process_batch
-    from custom_loss_functions import SmoothedPQCLoss
-    import pickle
-
-
     # Check CUDA availability
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}", flush=True)
@@ -375,19 +361,6 @@ def depolarising_job(p_depolarising: float) -> None:
     function to run the depolarising noise job with quantum circuits.
     """
     
-    # Import required libraries
-    import pennylane as qml
-    from pennylane import numpy as np
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-    from torchvision import datasets, transforms
-    from torch.utils.data import DataLoader, Subset
-    from qml_modules import HybridModel
-    from util_funcs import process_batch
-    import pickle
-
-
     # Check CUDA availability
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}", flush=True)
@@ -428,7 +401,7 @@ def depolarising_job(p_depolarising: float) -> None:
     dev = qml.device("default.mixed", wires=num_qubits)
     print("Using default.mixed simulator - install lightning.gpu for GPU acceleration", flush=True)
 
-    layers = 50
+    layers = 75
     weight_shapes = {"weights": (int(layers*3), num_qubits)}
 
 
@@ -485,18 +458,18 @@ def depolarising_job(p_depolarising: float) -> None:
             
             optimizer.step()
 
-            gradients_linear_weights = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
-            gradients_linear_offsets = optimizer.param_groups[0]['params'][1].grad.data.cpu().numpy()
-            gradients_quantum = optimizer.param_groups[0]['params'][2].grad.data.cpu().numpy()
+            #gradients_linear_weights = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            #gradients_linear_offsets = optimizer.param_groups[0]['params'][1].grad.data.cpu().numpy()
+            #gradients_quantum = optimizer.param_groups[0]['params'][2].grad.data.cpu().numpy()
             
-            gradients_list.append({'linear weights': gradients_linear_weights,
-                                    'linear offsets': gradients_linear_offsets,
-                                    'quantum': gradients_quantum}
-                                    )
+            #gradients_list.append({'linear weights': gradients_linear_weights,
+            #                        'linear offsets': gradients_linear_offsets,
+            #                        'quantum': gradients_quantum}
+            #                        )
             
             # if no classical layer
-            #gradients_quantum = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
-            #gradients_list.append({'quantum': gradients_quantum})
+            gradients_quantum = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            gradients_list.append({'quantum': gradients_quantum})
 
             loss_values.append(loss)
             training_samples.append(training_samples[-1]+len(data))
@@ -553,7 +526,7 @@ def depolarising_job(p_depolarising: float) -> None:
 
     #torch.save(state, f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol{i}_param_states_part1.pth.tar')
 
-    with open(f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol_{p_depolarising:.2e}.pkl', 'wb') as file:
+    with open(f'noisy_QNN_test/QVC75_10q_encoded_50batch_15000epoch_0005lr_depol_{p_depolarising:.2e}_no_classical.pkl', 'wb') as file:
         pickle.dump(results, file, protocol=pickle.HIGHEST_PROTOCOL)
         
     return
@@ -565,19 +538,6 @@ def two_qubit_noise_job(i: int) -> None:
     function to run the two qubit noise job with quantum circuits.
     This job uses an extended depolarising noise model on two qubit gates.
     """
-    # Import required libraries
-    import pennylane as qml
-    from pennylane import numpy as np
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-    from torchvision import datasets, transforms
-    from torch.utils.data import DataLoader, Subset
-    from qml_modules import HybridModel
-    from util_funcs import process_batch
-    import pickle
-
-
 
     # Check CUDA availability
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -619,7 +579,7 @@ def two_qubit_noise_job(i: int) -> None:
     dev = qml.device("default.mixed", wires=num_qubits)
     print("Using default.mixed simulator - install lightning.gpu for GPU acceleration", flush=True)
 
-    layers = 50
+    layers = 75
     weight_shapes = {"weights": (int(layers*3), num_qubits)}
 
 
@@ -630,6 +590,7 @@ def two_qubit_noise_job(i: int) -> None:
     depolarising_rates = np.logspace(-5,np.log10(3/4),10)
 
     print(i, flush=True)
+    
     if i == -1:
         p_depolarising = 0
     else:
@@ -693,13 +654,13 @@ def two_qubit_noise_job(i: int) -> None:
             
             optimizer.step()
 
-            gradients_linear_weights = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
-            gradients_linear_offsets = optimizer.param_groups[0]['params'][1].grad.data.cpu().numpy()
-            gradients_quantum = optimizer.param_groups[0]['params'][2].grad.data.cpu().numpy()
+            #gradients_linear_weights = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            #gradients_linear_offsets = optimizer.param_groups[0]['params'][1].grad.data.cpu().numpy()
+            #gradients_quantum = optimizer.param_groups[0]['params'][2].grad.data.cpu().numpy()
             # if no classical layer
-            #gradients_quantum = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
-            gradients_list.append({'linear weights': gradients_linear_weights,
-                                    'linear offsets': gradients_linear_offsets,
+            gradients_quantum = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            gradients_list.append({#'linear weights': gradients_linear_weights,
+                                   # 'linear offsets': gradients_linear_offsets,
                                     'quantum': gradients_quantum}
                                     )
             #gradients_list.append(gradients)
@@ -759,26 +720,13 @@ def two_qubit_noise_job(i: int) -> None:
 
     #torch.save(state, f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_extended_depol{i}_param_states_part1.pth.tar')
 
-    with open(f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_extended_depol{i}.pkl', 'wb') as file:
+    with open(f'noisy_QNN_test/QVC75_10q_encoded_50batch_15000epoch_0005lr_extended_depol{i}_no_classical.pkl', 'wb') as file:
         pickle.dump(results, file, protocol=pickle.HIGHEST_PROTOCOL)
         
     return
 
 
 def gaussian_job(sigma: float, mu:float = 0) -> None:
-    # Import required libraries
-    import pennylane as qml
-    #from pennylane import numpy as np
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-    from torchvision import datasets, transforms
-    from torch.utils.data import DataLoader, Subset
-    from qml_modules import HybridModel
-    from util_funcs import process_batch
-    import pickle
-
-
 
     # Check CUDA availability
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -870,13 +818,13 @@ def gaussian_job(sigma: float, mu:float = 0) -> None:
             
             optimizer.step()
 
-            gradients_linear_weights = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
-            gradients_linear_offsets = optimizer.param_groups[0]['params'][1].grad.data.cpu().numpy()
-            gradients_quantum = optimizer.param_groups[0]['params'][2].grad.data.cpu().numpy()
+            #gradients_linear_weights = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            #gradients_linear_offsets = optimizer.param_groups[0]['params'][1].grad.data.cpu().numpy()
+            #gradients_quantum = optimizer.param_groups[0]['params'][2].grad.data.cpu().numpy()
             # if no classical layer
-            #gradients_quantum = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
-            gradients_list.append({'linear weights': gradients_linear_weights,
-                                    'linear offsets': gradients_linear_offsets,
+            gradients_quantum = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            gradients_list.append({#'linear weights': gradients_linear_weights,
+                                   # 'linear offsets': gradients_linear_offsets,
                                     'quantum': gradients_quantum}
                                     )
             #gradients_list.append(gradients)
@@ -936,7 +884,7 @@ def gaussian_job(sigma: float, mu:float = 0) -> None:
 
     #torch.save(state, f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol{i}_param_states_part1.pth.tar')
 
-    with open(f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_gaussian_pi2mean{sigma}.pkl', 'wb') as file:
+    with open(f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_gaussian_pi2mean{sigma}_no_classical.pkl', 'wb') as file:
         pickle.dump(results, file, protocol=pickle.HIGHEST_PROTOCOL)
     
     return
@@ -949,20 +897,6 @@ def depol_and_damping_job(i_ : int, i : int = 4) -> None:
     Note classical layer is not used in this job.
     """
     
-    # Import required libraries
-    import pennylane as qml
-    from pennylane import numpy as np
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-    from torchvision import datasets, transforms
-    from torch.utils.data import DataLoader, Subset
-    from qml_modules import HybridModel
-    from util_funcs import process_batch
-    import pickle
-
-
-
     # Check CUDA availability
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}", flush=True)
@@ -1183,20 +1117,6 @@ def depol_and_generalised_damping_job(p_damping : float, gamma : float, p_depola
         gamma: damping noise rate
         i: index for the depolarising noise rate
     """
-    
-    # Import required libraries
-    import pennylane as qml
-    from pennylane import numpy as np
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-    from torchvision import datasets, transforms
-    from torch.utils.data import DataLoader, Subset
-    from qml_modules import HybridModel
-    from util_funcs import process_batch
-    import pickle
-
-
 
     # Check CUDA availability
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -1241,7 +1161,7 @@ def depol_and_generalised_damping_job(p_damping : float, gamma : float, p_depola
     #dev = qml.device("default.mixed", wires=num_qubits)
     #dev = qml.device("lightning.qubit", wires=num_qubits)
 
-    layers = 50
+    layers = 75
     weight_shapes = {"weights": (int(layers*3), num_qubits)}
 
 
@@ -1390,7 +1310,7 @@ def depol_and_generalised_damping_job(p_damping : float, gamma : float, p_depola
 
     #torch.save(state, f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol{i}_param_states_part1.pth.tar')
 
-    with open(f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol_and_generalised_damping{p_depolarising:.2e}_{gamma:.2e}_{p_damping:.2e}.pkl', 'wb') as file:
+    with open(f'noisy_QNN_test/QVC75_10q_encoded_50batch_15000epoch_0005lr_depol_and_generalised_damping{p_depolarising:.2e}_{gamma:.2e}_{p_damping:.2e}.pkl', 'wb') as file:
         pickle.dump(results, file, protocol=pickle.HIGHEST_PROTOCOL)
     
     return
