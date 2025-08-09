@@ -3,43 +3,49 @@ import numpy as np
 import torch
 from qml_modules import *
 import os
-import math
-from mpi4py import MPI
+from multiprocessing import Pool
+
+def label_check(args):
+    model, data, target = args
+    data = data.view(data.size(0), -1)
+    output = model(data)
+    _, predicted = torch.max(output.data, 1)
+    total = target.size(0)
+    correct = (predicted == target).sum().item()
+    
+    return total, correct
+
+def loss_eval(args):
+    model, criterion, data, target, batch_size = args
+    output = model(data)
+    loss = criterion(output, target)
+    loss = loss / batch_size * len(data)
+    loss.backward()  # Accumulate gradients
+    
+    return loss.item()
 
 #torch.autograd.set_detect_anomaly(True) 
 # MPI-based parallel batch processing for CPU
-def process_batch_mpi(model, data, target, batch_size, batch_idx, criterion, comm, rank, size):
+def process_batch_cpu_multiprocessing(model, data, target, batch_size, batch_idx, minibatch_size, criterion):
     
-    local_loss = 0
+    size = len(data)
+    total_loss = 0
     nan_counts = 0
     
-    minibatch_size = int(math.ceil(batch_size/size))
+    num_threads = size // minibatch_size + 1
     
-    # Process one sample at a time
-    for i in range(0, batch_size, minibatch_size):
-        mini_data = data[i:i+minibatch_size]  # Keep batch dimension (shape [1, 16])
-        mini_target = target[i:i+minibatch_size]
-        #print(mini_target, flush=True)
-        # Forward pass with gradient tracking
-        output = model(mini_data)
-        
-        loss = criterion(output, mini_target)
-        
-        #print(f'output: {output}', flush=True)
-        print(f'{batch_idx * batch_size + i + minibatch_size} done', flush=True)
-        
-        # Accumulate gradients (scaled by 1/batch_size)
-        loss = loss / batch_size * len(mini_data)  # Scale loss for gradient accumulation
-        loss.backward()  # Gradients accumulate across samples
-        local_loss += loss.item()
+    mini_data_list = [data[i:i+minibatch_size] for i in range(0, size, minibatch_size)]
+    mini_target_list = [target[i:i+minibatch_size] for i in range(0, size, minibatch_size)]
+    data_target_pairs_list = list(zip(mini_data_list, mini_target_list))
     
-    total_loss = comm.allreduce(local_loss, op=MPI.SUM)
+    with Pool(num_threads) as p:
+        for result in p.map(loss_eval, [(model, criterion, mini_data, mini_target, batch_size) for mini_data, mini_target in data_target_pairs_list]):
+            #result = p.map(loss_eval, mini_data_list)
+            #print(f'Batch {batch_idx}, processed {len(result)} samples', flush=True)
+            total_loss += result
     
-    for param in model.parameters():
-        if param.grad is not None:
-            comm.Allreduce(MPI.IN_PLACE, param.grad.data, op=MPI.SUM)
-            param.grad.data /= size
-            
+    total_loss *= batch_size/(size-nan_counts)
+    
     return total_loss, nan_counts
 
 

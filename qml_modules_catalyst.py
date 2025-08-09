@@ -1,69 +1,17 @@
-# Import required libraries
 import pennylane as qml
-from pennylane import numpy as np
 import torch
 import torch.nn as nn
-#from functools import partial, wraps
+import scipy.stats
 from superop import SuperOpTools
 from scipy.linalg import expm, logm
-import scipy.stats
 from typing import Union
-#import pickle
 
-
-class post_process:
-    def __call__(self, expval):
-        c1 = expval
-        c2 = 1 - expval**2
-        c3 = 2*expval**3 -2*expval
-        c4 = 1 - expval**2 - 3*expval**3 + 3*expval
-
-        return c1 - c2**2/(c3**2-c2*c4)*(np.sqrt(3*c3**2-2*c2*c4)-c3)
-
-
-class CustomSigmoid(nn.Module):
-    """A custom sigmoid activation function with adjustable dilation and vertical translation."""
-    def __init__(self, dilation=2, vert_translation=-1):
-        super().__init__()
-        self.dilation = dilation
-        self.vert_translation = vert_translation
-        self.sigmoid = nn.Sigmoid()
-    
-    def forward(self, x):
-        return self.sigmoid(x)*self.dilation + self.vert_translation
-        
-        
-class ShotNoise(nn.Module):
-    """A stochastic layer to simulate shot noise in quantum circuits."""
-    def __init__(self, num_shots, device):
-        super().__init__()
-        self.num_shots = num_shots
-        self.device = device
-        
-    def forward(self, x):
-        #x = x[:,::2] - x[:,1::2]
-        p_positive_eigvals = (x+1)/2
-        variance = 4*p_positive_eigvals*(1-p_positive_eigvals)/self.num_shots
-        expval_with_shotnoise = x + variance**0.5*torch.randn(x.shape[0], x.shape[1]).to(self.device)
-        
-        return expval_with_shotnoise.clamp(min=-1,max=1)
-
-class ClampLinear(nn.Module):
-    """A linear layer with clamping to specified bounds."""
-    def __init__(self, input_features, output_features, lower_bound, upper_bound):
-        super().__init__()
-        self.lower_bound = lower_bound
-        self.upper_bound = upper_bound
-        self.Linear = nn.Linear(input_features, output_features)
-        
-    def forward(self, x):
-        return self.Linear(x).clamp(min=self.lower_bound, max=self.upper_bound)
-
-
-        
-
+## those packages are not installed yet
+from jax import numpy as np
+import optax
+import catalyst
 # Quantum neural network
-class HybridModel(nn.Module):
+class HybridModel:
     
     """
     A hybrid quantum-classical neural network model.
@@ -98,7 +46,6 @@ class HybridModel(nn.Module):
         self.dev = dev
         self.device = device
         self.num_qubits = num_qubits
-        self.shot_noise = ShotNoise(num_shots=10000, device=device)
         self.classical = nn.Linear(num_qubits, 10)#.to(device)
         #self.clamped_classical = ClampLinear(num_qubits, 10, -1e8, 1e8)
         #self.sigmoid_activation = CustomSigmoid()
@@ -125,99 +72,33 @@ class HybridModel(nn.Module):
                 normalize=True
             )
             
-            #bases = torch.Tensor([[int(x) for x in bin(i)[2:]] for i in range(2**num_qubits)])
-            #bases.repeat(inputs.shape[0], len(bases), num_qubits)
-            #qml.Superposition(coeffs=coeffs,
-            #                  bases=bases,
-            #                  wires=range(self.num_qubits),
-            #                  work_wire=num_qubits)
-            
-            
-            
-            #always-on Z rotation parameters:
-            #bases = qml.ops.qubit.special_unitary.pauli_basis_strings(self.num_qubits)
-            #
-            #coefficients = np.zeros(4**self.num_qubits)
-            #
-            #for idx, basis in enumerate(bases):
-            #    Z_count = basis.count('Z')
-            #    I_count = basis.count('I')
-            #    if I_count + Z_count == self.num_qubits:
-            #        if Z_count == 1:
-            #            coefficients[idx] += kwargs['Z']
-            
-            
-
             # Trainable layers (batch-agnostic)
-            for layer in range(int(weights.shape[0]/3)):
-                for qubit in range(self.num_qubits):
+            
+            @qml.for_loop(0, self.num_qubits, 2)
+            def entangling_gate_even_qubits(qubit):
+                qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
+            
+            @qml.for_loop(1, self.num_qubits, 2)
+            def entangling_gate_odd_qubits(qubit):
+                qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
+                    
+            @qml.for_loop(int(weights.shape[0]/3))
+            def QVC_layer(layer, weights):
+                
+                @qml.for_loop(self.num_qubits)
+                def single_qubit_rotation(qubit, layer, weights):
                     qml.RZ(weights[layer*3, qubit], wires=qubit)
                     qml.RY(weights[layer*3+1, qubit], wires=qubit)
                     qml.RZ(weights[layer*3+2, qubit], wires=qubit)
-                    
-                    
-                    #qml.Rot(phi = weights[layer*3, qubit], 
-                    #        theta = weights[layer*3+1, qubit], 
-                    #        omega = weights[layer*3+2, qubit], 
-                    #        wires = qubit)
-                #qml.DepolarizingChannel(kwargs['p_depolarising'], wires=list(range(self.num_qubits)))
 
-                # Entanglement remains the same across batches
-                for qubit in range(0, self.num_qubits, 2):
-                    qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
-                #qml.DepolarizingChannel(kwargs['p_depolarising'], wires=list(range(self.num_qubits)))
-                #qml.AmplitudeDamping(kwargs['p_damping'], wires=list(range(self.num_qubits)))
-                #qml.PhaseFlip(kwargs['p_phase'], wires=list(range(self.num_qubits)))
-                #qml.BitFlip(kwargs['p_bit'], wires=list(range(self.num_qubits)))
-                #qml.SpecialUnitary(coefficients, wires=list(range(self.num_qubits)))
-                
-                #D0 = np.sqrt(1-kwargs['p_phase'])*np.eye(2)
-                #D1 = np.sqrt(kwargs['p_phase'])*np.array([[1,0],[0,-1]])
-                #A0 = np.array([[1, 0], [0, np.sqrt(1-kwargs['p_damping'])]])
-                #A1 = np.sqrt(kwargs['p_damping'])*np.array([[0,1],[0,0]])
-                #U = expm(-1j*kwargs['Z']*qml.PauliZ(wires=0).compute_matrix())
-                #scale_factor = np.trace(D0.conj().T@D0 + D1.conj().T@D1 + A0.conj().T@A0 + A1.conj().T@A1 + U.conj().T@U)/2
-                #D0 = D0/np.sqrt(scale_factor)
-                #D1 = D1/np.sqrt(scale_factor)
-                #A0 = A0/np.sqrt(scale_factor)
-                #A1 = A1/np.sqrt(scale_factor)
-                #U = U/np.sqrt(scale_factor)
-                #kraus_ops_list = [D0,D1,A0,A1,U]
-                #for qubit in range(self.num_qubits):
-                #    qml.QubitChannel(kraus_ops_list, wires=qubit)
-                
-                
-                for qubit in range(1, self.num_qubits, 2):
-                    qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
-                #qml.DepolarizingChannel(kwargs['p_depolarising'], wires=list(range(self.num_qubits)))
-                #qml.AmplitudeDamping(kwargs['p_damping'], wires=list(range(self.num_qubits)))
-                #qml.PhaseFlip(kwargs['p_phase'], wires=list(range(self.num_qubits)))
-                #qml.BitFlip(kwargs['p_bit'], wires=list(range(self.num_qubits)))
-                #qml.SpecialUnitary(coefficients, wires=list(range(self.num_qubits)))
-                
-                #D0 = np.sqrt(1-kwargs['p_phase'])*np.eye(2)
-                #D1 = np.sqrt(kwargs['p_phase'])*np.array([[1,0],[0,-1]])
-                #A0 = np.array([[1, 0], [0, np.sqrt(1-kwargs['p_damping'])]])
-                #A1 = np.sqrt(kwargs['p_damping'])*np.array([[0,1],[0,0]])
-                #U = expm(-1j*kwargs['Z']*qml.PauliZ(wires=0).compute_matrix())
-                #scale_factor = np.trace(D0.conj().T@D0 + D1.conj().T@D1 + A0.conj().T@A0 + A1.conj().T@A1 + U.conj().T@U)/2
-                #D0 = D0/np.sqrt(scale_factor)
-                #D1 = D1/np.sqrt(scale_factor)
-                #A0 = A0/np.sqrt(scale_factor)
-                #A1 = A1/np.sqrt(scale_factor)
-                #U = U/np.sqrt(scale_factor)
-                #kraus_ops_list = [D0,D1,A0,A1,U]
-                #for qubit in range(self.num_qubits):
-                #    qml.QubitChannel(kraus_ops_list, wires=qubit)
+                single_qubit_rotation(layer, weights)
+                entangling_gate_even_qubits()
+                entangling_gate_odd_qubits()
+                    
+            QVC_layer(weights)
 
-            
-            # Return measurements for all batches
-            #print(qml.state())
             return [qml.expval(qml.PauliZ(wires=q)) for q in range(self.num_qubits)]
             
-            #return [qml.probs(op=qml.PauliZ(wires=q)) for q in range(self.num_qubits)]
-            
-            #return [qml.expval(qml.Hermitian(ZZ, wires=[q,q])) for q in range(num_qubits)]
         
         
         for var_name, var_value in kwargs.items():
@@ -288,35 +169,41 @@ class HybridModel(nn.Module):
             #print(quantum_circuit)
         
         self.qnode_test = quantum_circuit
-        self.quantum = qml.qnn.TorchLayer(quantum_circuit, weight_shapes)
-        #self.lanczos_expand = post_process()
-        #self.classical = nn.Linear(num_qubits, 10)#.to(device)  # 8 quantum outputs -> 10 classes
+        self.quantum_qjit = qml.qjit(catalyst.vmap(quantum_circuit, in_axes=(0, None)))
+        self.optimizer = optax.adam(learning_rate=0.3)
+    
+    @qml.qjit
+    def loss_eval_qjit(self, weights, data, target, batch_size, criterion):
+        size = len(data)
+        loss = 0
+        # Process one sample at a time
+        output = self.quantum_qjit(data, weights)
+        loss = criterion(output, target)
+            
+        loss = loss / batch_size * len(data)  # Scale loss for gradient accumulation
+        loss *= batch_size/size
         
-        
-        
-    def forward(self, x):
-        #print('entering forward function', flush=True)
-        #print(f'input image vec: {x} with norm {torch.linalg.norm(x)}', flush=True)
-        x = self.quantum(x)
-        #print(f'after quantum layer: {x}', flush=True)
-        
-        x = self.shot_noise(x)
-        #print(f'after shot noise layer: {x}', flush=True)
-        
-        #x = self.lanczos_expand(x)
-        #return nn.functional.softmax(x, dim=1)
-        
-        x = self.classical(x)
-        #print(f'after classical layer: {x}', flush=True)
-        #print('exiting forward function', flush=True)
-        
-        return x
-        #return self.classical(x)#.clamp(min=-1e8,max=1e8)
-        #return self.clamped_classical(x)
-        
-        
-        #return self.quantum(x)
-        #return self.sigmoid_activation(x)
+        return loss
+
+    @qml.qjit
+    def update_step(self, i, args):
+        opt_state, data, targets, weights, batch_size, criterion = args
+
+        grads = catalyst.grad(self.loss_eval_qjit, method="fd")(weights, data, targets, batch_size, criterion)
+        updates, opt_state = self.optimizer.update(grads, opt_state)
+        weights = optax.apply_updates(weights, updates)
+
+        return (weights, opt_state, data, targets)
+    
+    
+    @qml.qjit
+    def optimization(self, weights, data, targets, batch_size, criterion):
+        opt_state = self.optimizer.init(weights)
+        args = (opt_state, data, targets, weights, batch_size, criterion)
+        (weights, opt_state, _, _) = catalyst.for_loop(0, 100, 1)(self.update_step)(args)
+        return weights
+
+    
     
     def gen_depolarising_noise(self, single_qubit_only: bool|str = True, **kwargs) -> qml.NoiseModel:
         
@@ -666,9 +553,3 @@ class HybridModel(nn.Module):
             )
         
         return noise_model
-
-
-#class Trainer(HybridModel):
-#    def __init__(self, ):
-#        super().__init__()
-#        self.optimizer = optim.Adam(model.parameters(), lr=0.001)
