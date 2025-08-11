@@ -368,17 +368,20 @@ def depolarising_smoothedPQC_job(p_depolarising: float) -> None:
 
 
     num_qubits = 10  # Using 9 qubits if using amplitude+phase encoding
-
-    #try:
-    #    # Try to use GPU simulator
-    #    dev = qml.device("lightning.gpu", wires=num_qubits)
-    #    print("Using lightning.gpu quantum simulator", flush=True)
-    #except:
-    # Fallback to CPU with GPU classical components
-    #dev = qml.device("default.qubit", wires=num_qubits)
-    #print("Using default.qubit simulator - install lightning.gpu for GPU acceleration", flush=True)
-    dev = qml.device("default.mixed", wires=num_qubits)
-    print("Using default.mixed simulator - install lightning.gpu for GPU acceleration", flush=True)
+    
+    if p_depolarising == 0:
+        #try:
+        #    # Try to use GPU simulator
+        #    dev = qml.device("lightning.gpu", wires=num_qubits)
+        #    print("Using lightning.gpu quantum simulator", flush=True)
+        #except:
+        #    #Fallback to CPU with GPU classical components
+        dev = qml.device("default.qubit", wires=num_qubits)
+        print("Using default.qubit simulator - install lightning.gpu for GPU acceleration", flush=True)
+    
+    else:
+        dev = qml.device("default.mixed", wires=num_qubits)
+        print("Using default.mixed simulator - install lightning.gpu for GPU acceleration", flush=True)
 
     layers = 50
     weight_shapes = {"weights": (int(layers*3), num_qubits)}
@@ -398,9 +401,11 @@ def depolarising_smoothedPQC_job(p_depolarising: float) -> None:
     #print(f'standard deviation: {sigma}', flush=True)
 
     results = {}
-    
-    model = HybridModel(dev=dev, device=device, num_qubits=num_qubits, weight_shapes=weight_shapes, noise_model='depolarising',
-                        p_depolarising=p_depolarising).to(device)
+    if p_depolarising == 0:
+        model = HybridModel(dev=dev, device=device, num_qubits=num_qubits, weight_shapes=weight_shapes, noise_model=None).to(device)
+    else:
+        model = HybridModel(dev=dev, device=device, num_qubits=num_qubits, weight_shapes=weight_shapes, noise_model='depolarising',
+                            p_depolarising=p_depolarising).to(device)
     
     #model, optimizer, last_image_index = load_checkpoint(model=model, optimizer=optimizer, device=device, filename=f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol{i}_param_states_part1.pth.tar')
     criterion = SmoothedPQCLoss()
