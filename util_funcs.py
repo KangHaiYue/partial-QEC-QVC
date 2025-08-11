@@ -15,6 +15,33 @@ def label_check(args):
     
     return total, correct
 
+#torch.autograd.set_detect_anomaly(True) 
+# MPI-based parallel batch processing for CPU
+def process_batch_cpu_mpi(model, data, target, batch_size, minibatch_size, criterion,rank, size):
+    """
+    Parallel batch processing using MPI for backpropagation within a batch.
+    Each MPI rank processes a subset of the minibatches, accumulates gradients locally,
+    and then gradients are averaged across all ranks.
+    """
+
+    total_loss = 0.0
+    # Split minibatches among ranks
+    indices = list(range(0, len(data), minibatch_size))
+    current_rank_indicies = indices[rank::size]
+
+    for i in current_rank_indicies:
+        mini_data = data[i:i+minibatch_size]
+        mini_target = target[i:i+minibatch_size]
+        output = model(mini_data)
+
+        loss = criterion(output, mini_target)
+        loss = loss / batch_size * len(mini_data)
+        loss.backward()
+        total_loss += loss.item()
+
+    return total_loss
+
+
 def loss_eval(args):
     model, criterion, data, target, batch_size = args
     output = model(data)
@@ -24,8 +51,6 @@ def loss_eval(args):
     
     return loss.item()
 
-#torch.autograd.set_detect_anomaly(True) 
-# MPI-based parallel batch processing for CPU
 def process_batch_cpu_multiprocessing(model, data, target, batch_size, batch_idx, minibatch_size, criterion):
     
     size = len(data)

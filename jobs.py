@@ -7,13 +7,168 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Subset
 from qml_modules import HybridModel
-from util_funcs import process_batch, process_batch_cpu_multiprocessing
+from util_funcs import process_batch, process_batch_cpu_multiprocessing, process_batch_cpu_mpi, label_check
 from custom_loss_functions import SmoothedPQCLoss
 import pickle
 from multiprocessing import Pool
+from mpi4py import MPI
 
 
-def depolarising_cpu_parallel_job(p_depolarising: float) -> None:
+def depolarising_smoothedPQC_cpu_mpi_parallel_job(p_depolarising: float) -> None:
+    """
+    Like depolarising_cpu_parallel_job, but uses MPI for parallelisation within each batch.
+    """
+    
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    size = comm.Get_size()
+    
+    if rank == 0:
+        device = torch.device("cpu")
+        print(f"Using device: {device}", flush=True)
+        
+        transform = transforms.Compose([
+            transforms.Resize((32, 32)),
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.flatten()),
+            transforms.Lambda(lambda x: x / torch.norm(x)),
+        ])
+        
+        epoch_size = 15000
+        batch_size = 50
+        test_size = 250
+        minibatch_size = 1
+        num_qubits = 10
+        
+        train_dataset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
+        train_subset = Subset(train_dataset, indices=range(epoch_size))
+        train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+        test_dataset = datasets.MNIST(root='./data', train=False, download=True, transform=transform)
+
+        dev = qml.device("default.mixed", wires=num_qubits)
+        print("Using default.mixed simulator - install lightning.gpu for GPU acceleration", flush=True)
+        
+        layers = 50
+        weight_shapes = {"weights": (int(layers*3), num_qubits)}
+        
+        print(f'depolarising noise rate: {p_depolarising}', flush=True)
+        
+        model = HybridModel(dev=dev, device=device, num_qubits=num_qubits, weight_shapes=weight_shapes, noise_model='depolarising',
+                            p_depolarising=p_depolarising).to(device)
+        
+        criterion = SmoothedPQCLoss()
+        optimizer = optim.Adam(model.parameters(), lr=0.005)
+        
+        
+        results = {}
+        accuracies = {}
+        training_samples = [0]
+        loss_values = []
+        gradients_list = []
+        trained_images = 0
+
+        train_loader = comm.bcast(train_loader, root=0)
+        test_dataset = comm.bcast(test_dataset, root=0)
+        
+        batch_size = comm.bcast(batch_size, root=0)
+        test_size = comm.bcast(test_size, root=0)
+        minibatch_size = comm.bcast(minibatch_size, root=0)
+        
+        model = comm.bcast(model, root=0)
+        criterion = comm.bcast(criterion, root=0)
+        optimizer = comm.bcast(optimizer, root=0)
+        
+    comm.Barrier()
+    
+    for batch_idx, (data, target) in enumerate(train_loader):
+        
+        model.train()
+        data = data.view(data.size(0), -1)
+        target_new = torch.zeros(len(data),10)
+        for j in range(len(target)):
+            target_new[j][target[j]] = 1
+            
+        optimizer.zero_grad()
+        
+        loss = process_batch_cpu_mpi(model, data, target_new, batch_size, minibatch_size, criterion, rank, size)
+        comm.Barrier()
+        
+        if rank == 0:
+            local_grads = [torch.zeros_like(p) for p in model.parameters()]
+            # Accumulate gradients across all ranks
+            for idx, param in enumerate(model.parameters()):
+                if param.grad is not None:
+                    comm.Allreduce(param.grad, local_grads[idx], op = MPI.SUM)
+                    param.grad.data = local_grads[idx]
+                else:
+                    param.grad.data = local_grads[idx]
+            # Average total_loss and nan_counts across ranks
+            loss = comm.allreduce(loss, op=MPI.SUM)
+            
+            optimizer.step()
+            model = comm.bcast(model, root=0)
+            loss = comm.bcast(loss, root=0)
+            optimizer = comm.bcast(optimizer, root=0)
+            
+        
+            trained_images += len(data)
+            
+            #gradients_linear_weights = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            #gradients_linear_offsets = optimizer.param_groups[0]['params'][1].grad.data.cpu().numpy()
+            #gradients_quantum = optimizer.param_groups[0]['params'][2].grad.data.cpu().numpy()
+            #gradients_list.append({'linear weights': gradients_linear_weights,
+            #                        'linear offsets': gradients_linear_offsets,
+            #                        'quantum': gradients_quantum}
+            #                        )
+            gradients_quantum = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            gradients_list.append({'quantum': gradients_quantum})
+            
+            loss_values.append(loss)
+            training_samples.append(training_samples[-1] + len(data))
+            print(f"trained images {trained_images}: Loss {loss:.4f}", flush=True)
+        comm.Barrier()
+        
+        
+        if batch_idx % 4 == 0:
+            model.eval()
+            correct = 0
+            total = 0
+            with torch.no_grad():
+                test_subset = Subset(test_dataset, indices=range(test_size))
+                test_loader = DataLoader(test_subset, batch_size=test_size, shuffle=False)
+                indices = list(range(0, test_size, minibatch_size))
+                current_rank_indicies = indices[rank::size]
+                
+                for data_, target_ in test_loader:
+                    for i in current_rank_indicies:
+                        mini_data = data_.view(minibatch_size, -1)[i:i+minibatch_size]
+                        mini_target = target_[i:i+minibatch_size]
+                        
+                        output = model(mini_data)
+                        pred = output.argmax(dim=1)
+                        correct += (pred == mini_target).sum().item()
+                        total += len(mini_data)
+                comm.Barrier()
+                
+                if rank == 0:
+                    correct = comm.allreduce(correct, op=MPI.SUM)
+                    total = comm.allreduce(total, op=MPI.SUM)
+                    print(f'Test Accuracy: {100 * correct / total:.2f}%\n', flush=True)
+                    accuracies[trained_images] = correct / total
+                comm.Barrier()
+
+    if rank == 0:
+        print(f'trained images: {trained_images}', flush=True)
+        results['training samples'] = training_samples[1:]
+        results['accuracies'] = accuracies
+        results['loss values'] = loss_values
+        results['gradients'] = gradients_list
+        with open(f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol_{p_depolarising:.2e}_smoothedPQC_cpu_mpi.pkl', 'wb') as file:
+            pickle.dump(results, file, protocol=pickle.HIGHEST_PROTOCOL)
+    return
+
+
+def depolarising_smoothedPQC_cpu_parallel_job(p_depolarising: float) -> None:
     """    
     function to run the depolarising noise job with quantum circuits.
     """
@@ -115,18 +270,18 @@ def depolarising_cpu_parallel_job(p_depolarising: float) -> None:
             
             optimizer.step()
 
-            gradients_linear_weights = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
-            gradients_linear_offsets = optimizer.param_groups[0]['params'][1].grad.data.cpu().numpy()
-            gradients_quantum = optimizer.param_groups[0]['params'][2].grad.data.cpu().numpy()
+            #gradients_linear_weights = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            #gradients_linear_offsets = optimizer.param_groups[0]['params'][1].grad.data.cpu().numpy()
+            #gradients_quantum = optimizer.param_groups[0]['params'][2].grad.data.cpu().numpy()
             
-            gradients_list.append({'linear weights': gradients_linear_weights,
-                                    'linear offsets': gradients_linear_offsets,
-                                    'quantum': gradients_quantum}
-                                    )
+            #gradients_list.append({'linear weights': gradients_linear_weights,
+            #                        'linear offsets': gradients_linear_offsets,
+            #                        'quantum': gradients_quantum}
+            #                        )
             
             # if no classical layer
-            #gradients_quantum = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
-            #gradients_list.append({'quantum': gradients_quantum})
+            gradients_quantum = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            gradients_list.append({'quantum': gradients_quantum})
 
             loss_values.append(loss)
             training_samples.append(training_samples[-1]+len(data))
@@ -148,7 +303,7 @@ def depolarising_cpu_parallel_job(p_depolarising: float) -> None:
                         data_target_pairs_list = [(data_, target_) for data_, target_ in test_loader]
                         num_threads = len(test_loader)
                         with Pool(num_threads) as p:
-                            for batch_total, batch_correct in p.map(model, [(model, data_, target_) for data_, target_ in data_target_pairs_list]):
+                            for batch_total, batch_correct in p.map(label_check, [(model, data_, target_) for data_, target_ in data_target_pairs_list]):
                                 total += batch_total
                                 correct += batch_correct
 
@@ -282,18 +437,18 @@ def depolarising_smoothedPQC_job(p_depolarising: float) -> None:
             
             optimizer.step()
 
-            gradients_linear_weights = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
-            gradients_linear_offsets = optimizer.param_groups[0]['params'][1].grad.data.cpu().numpy()
-            gradients_quantum = optimizer.param_groups[0]['params'][2].grad.data.cpu().numpy()
+            #gradients_linear_weights = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            #gradients_linear_offsets = optimizer.param_groups[0]['params'][1].grad.data.cpu().numpy()
+            #gradients_quantum = optimizer.param_groups[0]['params'][2].grad.data.cpu().numpy()
             
-            gradients_list.append({'linear weights': gradients_linear_weights,
-                                    'linear offsets': gradients_linear_offsets,
-                                    'quantum': gradients_quantum}
-                                    )
+            #gradients_list.append({'linear weights': gradients_linear_weights,
+            #                        'linear offsets': gradients_linear_offsets,
+            #                        'quantum': gradients_quantum}
+            #                        )
             
             # if no classical layer
-            #gradients_quantum = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
-            #gradients_list.append({'quantum': gradients_quantum})
+            gradients_quantum = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            gradients_list.append({'quantum': gradients_quantum})
 
             loss_values.append(loss)
             training_samples.append(training_samples[-1]+len(data))

@@ -10,6 +10,7 @@ from typing import Union
 from jax import numpy as np
 import optax
 import catalyst
+from mpi4py import MPI
 # Quantum neural network
 class HybridModel:
     
@@ -187,21 +188,63 @@ class HybridModel:
 
     @qml.qjit
     def update_step(self, i, args):
-        opt_state, data, targets, weights, batch_size, criterion = args
+        
+        opt_state, data, targets, weights, batch_size, criterion, minibatch_size, rank, processes, comm = args
+        
+        indices = list(range(0, len(data), minibatch_size))
+        current_rank_indicies = indices[rank::processes]
+        grads_total = 0
+        
+        for i in current_rank_indicies:
+            mini_data = data[i:i+minibatch_size]
+            mini_target = targets[i:i+minibatch_size]
+            
+            # Compute gradients
+            grads = catalyst.grad(self.loss_eval_qjit, method="fd")(weights, mini_data, mini_target, batch_size, criterion)
+            grads_total += grads
+        comm.Barrier()
+        
+        if rank == 0:
+            grads_total = comm.reduce(grads_total, root=0, op=MPI.SUM)
+            updates, opt_state = self.optimizer.update(grads_total, opt_state)
+            weights = optax.apply_updates(weights, updates)
+            
+            weights = comm.bcast(weights, root=0)
+            opt_state = comm.bcast(opt_state, root=0)
+            
+        comm.Barrier()
+        
+        return  (weights, opt_state, data, targets)
+        
+        
+        #grads = catalyst.grad(self.loss_eval_qjit, method="fd")(weights, data, targets, batch_size, criterion)
+        #updates, opt_state = self.optimizer.update(grads, opt_state)
+        #weights = optax.apply_updates(weights, updates)
 
-        grads = catalyst.grad(self.loss_eval_qjit, method="fd")(weights, data, targets, batch_size, criterion)
-        updates, opt_state = self.optimizer.update(grads, opt_state)
-        weights = optax.apply_updates(weights, updates)
-
-        return (weights, opt_state, data, targets)
+        #return (weights, opt_state, data, targets)
     
     
     @qml.qjit
-    def optimization(self, weights, data, targets, batch_size, criterion):
-        opt_state = self.optimizer.init(weights)
-        args = (opt_state, data, targets, weights, batch_size, criterion)
+    def optimization(self, weights, data, targets, batch_size, criterion, minibatch_size):
+        
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+        processes = comm.Get_size()
+        
+        if rank == 0:
+            print(f"Starting optimization with {processes} processes", flush=True)
+            opt_state = self.optimizer.init(weights)
+        
+        opt_state = comm.bcast(opt_state, root=0)
+        comm.Barrier()
+        
+        args = (opt_state, data, targets, weights, batch_size, criterion, minibatch_size, rank, processes, comm)
         (weights, opt_state, _, _) = catalyst.for_loop(0, 100, 1)(self.update_step)(args)
-        return weights
+        comm.Barrier()
+        
+        if rank == 0:
+            print("Optimization completed", flush=True)
+            return weights
 
     
     
