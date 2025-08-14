@@ -161,6 +161,7 @@ data
 # slurm job scripts
 #jobs/*.slurm
 *.slurm
+*.sh
 # test files
 test.py
 test2.py

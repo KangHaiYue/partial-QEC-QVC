@@ -14,8 +14,8 @@ class SmoothedPQCLoss(nn.Module):
         targets: tensor of shape (batch_size, num_classes) with one-hot encoding
         """
         
-        batch_size = values.shape[0]
-        if batch_size != targets.shape[0]:
+        minibatch_size = values.shape[0]
+        if minibatch_size != targets.shape[0]:
             raise Exception('batch size in loss_values does not match target')
         # find the targets' inverse CDF
         probs = self.softmax(values)
@@ -33,7 +33,7 @@ class SmoothedPQCLoss(nn.Module):
         
         
         #return -torch.sum(target_inv_CDFs - largest_non_target_inv_CDFs)
-        return torch.sum(torch.log(largest_non_target_probs) - torch.log(target_probs))/batch_size
+        return torch.sum(-1 + torch.log(largest_non_target_probs) - torch.log(target_probs))/minibatch_size
         
         #cross_entropy = torch.sum(torch.Tensor.log(nn.functional.softmax(values,dim=1))*targets)/len(values)
         #return cross_entropy - mean_variance

@@ -4,14 +4,182 @@ from pennylane import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Subset
+from torch.utils.data.distributed import DistributedSampler
 from qml_modules import HybridModel
-from util_funcs import process_batch, process_batch_cpu_multiprocessing, process_batch_cpu_mpi, label_check
+from util_funcs import process_batch, process_minibatch, process_batch_cpu_multiprocessing, process_batch_cpu_mpi, label_check
 from custom_loss_functions import SmoothedPQCLoss
 import pickle
 from multiprocessing import Pool
 from mpi4py import MPI
+
+
+
+def depolarising_smoothedPQC_torch_parallel_job(rank: int, size: int, p_depolarising: float) -> None:
+    """
+    Like depolarising_cpu_parallel_job, but uses torch.distributed for parallelisation within each batch.
+    """
+    
+    dist.init_process_group(backend="nccl", rank=rank, world_size=size, init_method='env://')
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu", rank)
+    torch.cuda.set_device(rank)
+    #device = torch.device("cpu")
+    
+    if rank == 0:
+        print(f"Using device: {device}", flush=True)
+    
+    transform = transforms.Compose([
+        transforms.Resize((32, 32)),
+        transforms.ToTensor(),
+        transforms.Lambda(lambda x: x.flatten()),
+        transforms.Lambda(lambda x: x / torch.norm(x)),
+        transforms.Lambda(lambda x: x.to(device))
+    ])
+    
+    epoch_size = 15000
+    batch_size = 50
+    test_size = 250
+    minibatch_size = 1
+    num_qubits = 10
+    
+    train_dataset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
+    #train_subset = Subset(train_dataset, indices=range(epoch_size))
+    #train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+    test_dataset = datasets.MNIST(root='./data', train=False, download=True, transform=transform)
+
+    if p_depolarising == 0:
+        #try:
+        #    # Try to use GPU simulator
+        #    dev = qml.device("lightning.gpu", wires=num_qubits)
+        #    print("Using lightning.gpu quantum simulator", flush=True)
+        #except:
+        #    #Fallback to CPU with GPU classical components
+        dev = qml.device("default.qubit", wires=num_qubits)
+        if rank == 0:
+            print("Using default.qubit simulator - install lightning.gpu for GPU acceleration", flush=True)
+    
+    else:
+        dev = qml.device("default.mixed", wires=num_qubits)
+        if rank == 0:
+            print("Using default.mixed simulator - install lightning.gpu for GPU acceleration", flush=True)
+            
+            
+    layers = 50
+    weight_shapes = {"weights": (int(layers*3), num_qubits)}
+    
+    if rank == 0:
+        print(f'depolarising noise rate: {p_depolarising}', flush=True)
+    
+    if p_depolarising == 0:
+        model = HybridModel(dev=dev, device=device, num_qubits=num_qubits, weight_shapes=weight_shapes, noise_model=None).to(device)
+    else:
+        model = HybridModel(dev=dev, device=device, num_qubits=num_qubits, weight_shapes=weight_shapes, noise_model='depolarising',
+                            p_depolarising=p_depolarising).to(device)
+        
+    model = DDP(model, device_ids=[rank])
+    
+    criterion = SmoothedPQCLoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.005)
+    
+    
+    results = {}
+    accuracies = {}
+    training_samples = [0]
+    loss_values = []
+    gradients_list = []
+    trained_images = 0
+
+    
+    #for batch_idx, (data, target) in enumerate(train_loader):
+    for batch_idx in range(epoch_size//batch_size):
+        
+        train_subset = Subset(train_dataset, indices=range(batch_idx*batch_size, (batch_idx+1)*batch_size))
+        train_sampler = DistributedSampler(train_subset, num_replicas=size, rank=rank)
+        train_loader = DataLoader(train_subset, batch_size=minibatch_size, shuffle=False, sampler=train_sampler)
+        
+        total_loss = 0
+        for minibatch_idx, (data, target) in enumerate(train_loader):
+            model.train()
+            data = data.view(data.size(0), -1).to(device)
+            target = target.to(device)
+            target_new = torch.zeros(len(data), 10, device=device)
+            for j in range(len(target)):
+                target_new[j][target[j]] = 1
+            optimizer.zero_grad()
+            loss = process_minibatch(model, data, target_new, batch_size, minibatch_size, criterion)
+            total_loss += loss
+
+            trained_images += len(data)*size
+            if rank == 0:
+                print(f'trained images {trained_images}', flush=True)
+                
+        total_loss = torch.tensor(total_loss, device=device)
+        dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
+        total_loss = total_loss.item()
+        
+        optimizer.step()
+        
+        if rank == 0:
+            print(f'Batch {batch_idx}, trained images {trained_images}, Total Loss: {total_loss:.4f}', flush=True)
+            #gradients_linear_weights = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            #gradients_linear_offsets = optimizer.param_groups[0]['params'][1].grad.data.cpu().numpy()
+            #gradients_quantum = optimizer.param_groups[0]['params'][2].grad.data.cpu().numpy()
+            #gradients_list.append({'linear weights': gradients_linear_weights,
+            #                        'linear offsets': gradients_linear_offsets,
+            #                        'quantum': gradients_quantum}
+            #                        )
+            gradients_quantum = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            gradients_list.append({'quantum': gradients_quantum})
+            
+            loss_values.append(total_loss)
+            training_samples.append(training_samples[-1] + len(data))
+        
+        # Evaluation
+        if batch_idx % 4 == 0:
+            model.eval()
+            correct = 0
+            total = 0
+            with torch.no_grad():
+                test_subset = Subset(test_dataset, indices=range(test_size))
+                test_sampler = DistributedSampler(test_subset, num_replicas=size, rank=rank)
+                test_loader = DataLoader(test_subset, batch_size=minibatch_size, shuffle=False, sampler=test_sampler)
+                for test_idx, (data_, target_) in enumerate(test_loader):
+                    data_ = data_.view(data_.size(0), -1).to(device)
+                    target_ = target_.to(device)
+                    
+                    output = model(data_)
+                    pred = output.argmax(dim=1)
+                    correct += (pred == target_).sum().item()
+                    total += len(target_)
+                    if rank == 0:
+                        print(f'images tested: {test_idx*minibatch_size*size}', flush=True)
+            
+            total = torch.tensor(total, device=device)
+            dist.all_reduce(total, op=dist.ReduceOp.SUM)
+            total = total.item()
+            
+            correct = torch.tensor(correct, device=device)
+            dist.all_reduce(correct, op=dist.ReduceOp.SUM)
+            correct = correct.item()
+        
+            if rank == 0:
+                print(f'Test Accuracy: {100 * correct / total:.2f}%\n', flush=True)
+                accuracies[trained_images] = correct / total
+
+    if rank == 0:
+        print(f'trained images: {trained_images}', flush=True)
+        results['training samples'] = training_samples[1:]
+        results['accuracies'] = accuracies
+        results['loss values'] = loss_values
+        results['gradients'] = gradients_list
+        with open(f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol_{p_depolarising:.2e}_smoothedPQC_cpu_torch.pkl', 'wb') as file:
+            pickle.dump(results, file, protocol=pickle.HIGHEST_PROTOCOL)
+    return
 
 
 def depolarising_smoothedPQC_cpu_mpi_parallel_job(p_depolarising: float) -> None:

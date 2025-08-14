@@ -1,6 +1,10 @@
 import numpy as np
 from util_funcs import calc_amplitude_damping_params
-from jobs import depolarising_job, two_qubit_noise_job, gaussian_job, depol_and_damping_job, depol_and_generalised_damping_job, depolarising_smoothedPQC_job, depolarising_smoothedPQC_cpu_mpi_parallel_job, depolarising_smoothedPQC_cpu_parallel_job
+from jobs import depolarising_job, two_qubit_noise_job, gaussian_job, depol_and_damping_job, depol_and_generalised_damping_job
+from jobs import depolarising_smoothedPQC_job, depolarising_smoothedPQC_cpu_mpi_parallel_job, depolarising_smoothedPQC_cpu_parallel_job, depolarising_smoothedPQC_torch_parallel_job
+import torch.multiprocessing as mp
+import os
+import argparse
 
 def main(*args, noise_model: str) -> None:
     """
@@ -44,6 +48,22 @@ def main(*args, noise_model: str) -> None:
     elif noise_model == "smoothedPQC depolarising cpu mpi parallel":
         print(f"Using smoothedPQC depolarising noise model with strength {args}")
         depolarising_smoothedPQC_cpu_mpi_parallel_job(*args)
+    
+    elif noise_model == "smoothedPQC depolarising torch parallel":
+        print(f"Using smoothedPQC depolarising noise model with strength {args}")
+        # if use torch.multiprocessing
+        size, p_depol = args
+        mp.spawn(
+            depolarising_smoothedPQC_torch_parallel_job, args=(size, p_depol), nprocs=size, join=True
+        )
+        
+        #if use torchrun
+        #size, p_depol = args
+        #parser = argparse.ArgumentParser()
+        #parser.add_argument("--local-rank", "--local_rank", type=int)
+        #args = parser.parse_args()
+        #rank = args.local_rank
+        #depolarising_smoothedPQC_torch_parallel_job(rank, size, p_depol)
         
     else:
         raise ValueError(f"Unknown noise model: {noise_model}")
@@ -57,3 +77,10 @@ if __name__ == "__main__":
     print(f"p_damping: {p_damping}, gamma: {gamma}, Gamma*dt: {Gammda_dt}", flush=True)
     # Example usage
     main(p_damping, gamma, 4, noise_model="depol and generalised damping")
+    
+    
+    
+    ######
+    size = 2
+    p_depol = 0.01
+    main(size, p_depol, noise_model='smoothedPQC depolarising torch parallel')

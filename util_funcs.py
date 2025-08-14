@@ -73,6 +73,26 @@ def process_batch_cpu_multiprocessing(model, data, target, batch_size, batch_idx
     
     return total_loss, nan_counts
 
+def process_minibatch(model, data, target, batch_size, minibatch_size, criterion):
+    
+    # Process one sample at a time
+
+    # Forward pass with gradient tracking
+    output = model(data)
+    
+    loss = criterion(output, target)
+    
+    # Accumulate gradients (scaled by 1/batch_size)
+    loss = loss / batch_size * len(data)  # Scale loss for gradient accumulation
+    loss.backward()  # Gradients accumulate across samples
+    
+    #print(optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy(), flush=True)
+    #print(model.clamped_classical.weight.grad, flush=True)
+    #for param in model.parameters():
+    #    if param.shape == (3*layers, num_qubits):
+    #        print(torch.mean(param.grad**2))
+    
+    return loss.item()
 
 # Modified evaluation and training code with per-sample processing
 def process_batch(model, data, target, batch_size, batch_idx, minibatch_size, criterion):
