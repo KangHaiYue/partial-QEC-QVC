@@ -52,9 +52,9 @@ def main(*args, noise_model: str) -> None:
     elif noise_model == "smoothedPQC depolarising torch parallel":
         print(f"Using smoothedPQC depolarising noise model with strength {args}")
         # if use torch.multiprocessing
-        size, p_depol = args
+        size, minibatch_size, p_depol = args
         mp.spawn(
-            depolarising_smoothedPQC_torch_parallel_job, args=(size, p_depol), nprocs=size, join=True
+            depolarising_smoothedPQC_torch_parallel_job, args=(size, minibatch_size, p_depol), nprocs=size, join=True
         )
         
         #if use torchrun

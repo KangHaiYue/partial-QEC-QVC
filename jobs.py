@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.distributed as dist
-import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Subset
@@ -19,7 +18,7 @@ from mpi4py import MPI
 
 
 
-def depolarising_smoothedPQC_torch_parallel_job(rank: int, size: int, p_depolarising: float) -> None:
+def depolarising_smoothedPQC_torch_parallel_job(rank: int, size: int, minibatch_size: int, p_depolarising: float) -> None:
     """
     Like depolarising_cpu_parallel_job, but uses torch.distributed for parallelisation within each batch.
     """
@@ -44,7 +43,6 @@ def depolarising_smoothedPQC_torch_parallel_job(rank: int, size: int, p_depolari
     epoch_size = 15000
     batch_size = 50
     test_size = 250
-    minibatch_size = 1
     num_qubits = 10
     
     train_dataset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)

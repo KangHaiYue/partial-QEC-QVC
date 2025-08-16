@@ -82,4 +82,22 @@ class SuperOpTools:
 
 
 if __name__ == "__main__":
-    print('You are running superop.py directly, which is not recommended.')
+    ''' test usage of SuperOpTools '''
+    import pennylane as qml
+    ZZ = np.array([[1, 0, 0, 0],
+                   [0, -1, 0, 0],    
+                   [0, 0, -1, 0],
+                   [0, 0, 0, 1]])
+    CZ = qml.CZ.compute_matrix()
+    
+    ZZ_superop = SuperOpTools.kraus2superop([ZZ])
+    
+    depol_single_kraus = qml.DepolarizingChannel.compute_kraus_matrices(0.1)
+    depol_two_kraus =  [qml.math.kron(depol_single_kraus[i], 
+                                      depol_single_kraus[j]) 
+                        for i in range(4) 
+                        for j in range(4)]
+    
+    depol_two_superop = SuperOpTools.kraus2superop(depol_two_kraus)
+    print(ZZ_superop@depol_two_superop - depol_two_superop@ZZ_superop)
+    
