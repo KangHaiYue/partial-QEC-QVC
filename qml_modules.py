@@ -149,68 +149,40 @@ class HybridModel(nn.Module):
             
 
             # Trainable layers (batch-agnostic)
-            for layer in range(int(weights.shape[0]/3)):
-                for qubit in range(self.num_qubits):
+            #for layer in range(int(weights.shape[0]/3)):
+            #    for qubit in range(self.num_qubits):
+            #        qml.RZ(weights[layer*3, qubit], wires=qubit)
+            #        qml.RY(weights[layer*3+1, qubit], wires=qubit)
+            #        qml.RZ(weights[layer*3+2, qubit], wires=qubit)
+            #        
+            #    # Entanglement remains the same across batches
+            #    for qubit in range(0, self.num_qubits, 2):
+            #        qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
+            #    
+            #    for qubit in range(1, self.num_qubits, 2):
+            #        qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
+            
+            @qml.for_loop(0, self.num_qubits, 2)
+            def entangling_gate_even_qubits(qubit):
+                qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
+
+            @qml.for_loop(1, self.num_qubits, 2)
+            def entangling_gate_odd_qubits(qubit):
+                qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
+
+            
+            num_layers = int(weights.shape[0]/3)
+            for layer in range(num_layers):
+                @qml.for_loop(0, self.num_qubits)
+                def single_qubit_rotation(qubit):
                     qml.RZ(weights[layer*3, qubit], wires=qubit)
                     qml.RY(weights[layer*3+1, qubit], wires=qubit)
                     qml.RZ(weights[layer*3+2, qubit], wires=qubit)
-                    
-                    
-                    #qml.Rot(phi = weights[layer*3, qubit], 
-                    #        theta = weights[layer*3+1, qubit], 
-                    #        omega = weights[layer*3+2, qubit], 
-                    #        wires = qubit)
-                #qml.DepolarizingChannel(kwargs['p_depolarising'], wires=list(range(self.num_qubits)))
-
-                # Entanglement remains the same across batches
-                for qubit in range(0, self.num_qubits, 2):
-                    qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
-                #qml.DepolarizingChannel(kwargs['p_depolarising'], wires=list(range(self.num_qubits)))
-                #qml.AmplitudeDamping(kwargs['p_damping'], wires=list(range(self.num_qubits)))
-                #qml.PhaseFlip(kwargs['p_phase'], wires=list(range(self.num_qubits)))
-                #qml.BitFlip(kwargs['p_bit'], wires=list(range(self.num_qubits)))
-                #qml.SpecialUnitary(coefficients, wires=list(range(self.num_qubits)))
                 
-                #D0 = np.sqrt(1-kwargs['p_phase'])*np.eye(2)
-                #D1 = np.sqrt(kwargs['p_phase'])*np.array([[1,0],[0,-1]])
-                #A0 = np.array([[1, 0], [0, np.sqrt(1-kwargs['p_damping'])]])
-                #A1 = np.sqrt(kwargs['p_damping'])*np.array([[0,1],[0,0]])
-                #U = expm(-1j*kwargs['Z']*qml.PauliZ(wires=0).compute_matrix())
-                #scale_factor = np.trace(D0.conj().T@D0 + D1.conj().T@D1 + A0.conj().T@A0 + A1.conj().T@A1 + U.conj().T@U)/2
-                #D0 = D0/np.sqrt(scale_factor)
-                #D1 = D1/np.sqrt(scale_factor)
-                #A0 = A0/np.sqrt(scale_factor)
-                #A1 = A1/np.sqrt(scale_factor)
-                #U = U/np.sqrt(scale_factor)
-                #kraus_ops_list = [D0,D1,A0,A1,U]
-                #for qubit in range(self.num_qubits):
-                #    qml.QubitChannel(kraus_ops_list, wires=qubit)
+                single_qubit_rotation()
+                entangling_gate_even_qubits()
+                entangling_gate_odd_qubits()
                 
-                
-                for qubit in range(1, self.num_qubits, 2):
-                    qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
-                #qml.DepolarizingChannel(kwargs['p_depolarising'], wires=list(range(self.num_qubits)))
-                #qml.AmplitudeDamping(kwargs['p_damping'], wires=list(range(self.num_qubits)))
-                #qml.PhaseFlip(kwargs['p_phase'], wires=list(range(self.num_qubits)))
-                #qml.BitFlip(kwargs['p_bit'], wires=list(range(self.num_qubits)))
-                #qml.SpecialUnitary(coefficients, wires=list(range(self.num_qubits)))
-                
-                #D0 = np.sqrt(1-kwargs['p_phase'])*np.eye(2)
-                #D1 = np.sqrt(kwargs['p_phase'])*np.array([[1,0],[0,-1]])
-                #A0 = np.array([[1, 0], [0, np.sqrt(1-kwargs['p_damping'])]])
-                #A1 = np.sqrt(kwargs['p_damping'])*np.array([[0,1],[0,0]])
-                #U = expm(-1j*kwargs['Z']*qml.PauliZ(wires=0).compute_matrix())
-                #scale_factor = np.trace(D0.conj().T@D0 + D1.conj().T@D1 + A0.conj().T@A0 + A1.conj().T@A1 + U.conj().T@U)/2
-                #D0 = D0/np.sqrt(scale_factor)
-                #D1 = D1/np.sqrt(scale_factor)
-                #A0 = A0/np.sqrt(scale_factor)
-                #A1 = A1/np.sqrt(scale_factor)
-                #U = U/np.sqrt(scale_factor)
-                #kraus_ops_list = [D0,D1,A0,A1,U]
-                #for qubit in range(self.num_qubits):
-                #    qml.QubitChannel(kraus_ops_list, wires=qubit)
-
-            
             # Return measurements for all batches
             #print(qml.state())
             return [qml.expval(qml.PauliZ(wires=q)) for q in range(self.num_qubits)]

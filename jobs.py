@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader, Subset
 from torch.utils.data.distributed import DistributedSampler
 from qml_modules import HybridModel
 from util_funcs import process_batch, process_minibatch, process_batch_cpu_multiprocessing, process_batch_cpu_mpi, label_check
-from custom_loss_functions import SmoothedPQCLoss
+from custom_loss_functions import SoftMaxSmoothedPQCLoss
 import pickle
 from multiprocessing import Pool
 from mpi4py import MPI
@@ -81,7 +81,7 @@ def depolarising_smoothedPQC_torch_parallel_job(rank: int, size: int, minibatch_
         
     model = DDP(model, device_ids=[rank])
     
-    criterion = SmoothedPQCLoss()
+    criterion = SoftMaxSmoothedPQCLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.005)
     
     
@@ -135,7 +135,7 @@ def depolarising_smoothedPQC_torch_parallel_job(rank: int, size: int, minibatch_
             gradients_list.append({'quantum': gradients_quantum})
             
             loss_values.append(total_loss)
-            training_samples.append(training_samples[-1] + len(data))
+            training_samples.append(training_samples[-1] + batch_size)
         
         # Evaluation
         if batch_idx % 4 == 0:
@@ -222,7 +222,7 @@ def depolarising_smoothedPQC_cpu_mpi_parallel_job(p_depolarising: float) -> None
         model = HybridModel(dev=dev, device=device, num_qubits=num_qubits, weight_shapes=weight_shapes, noise_model='depolarising',
                             p_depolarising=p_depolarising).to(device)
         
-        criterion = SmoothedPQCLoss()
+        criterion = SoftMaxSmoothedPQCLoss()
         optimizer = optim.Adam(model.parameters(), lr=0.005)
         
         
@@ -402,7 +402,7 @@ def depolarising_smoothedPQC_cpu_parallel_job(p_depolarising: float) -> None:
                         p_depolarising=p_depolarising).to(device)
     
     #model, optimizer, last_image_index = load_checkpoint(model=model, optimizer=optimizer, device=device, filename=f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol{i}_param_states_part1.pth.tar')
-    criterion = SmoothedPQCLoss()
+    criterion = SoftMaxSmoothedPQCLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.005)
 
     accuracies = {}
@@ -574,7 +574,7 @@ def depolarising_smoothedPQC_job(p_depolarising: float) -> None:
                             p_depolarising=p_depolarising).to(device)
     
     #model, optimizer, last_image_index = load_checkpoint(model=model, optimizer=optimizer, device=device, filename=f'noisy_QNN_test/QVC50_10q_encoded_50batch_15000epoch_0005lr_depol{i}_param_states_part1.pth.tar')
-    criterion = SmoothedPQCLoss()
+    criterion = SoftMaxSmoothedPQCLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.005)
 
     accuracies = {}

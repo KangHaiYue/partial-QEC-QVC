@@ -54,7 +54,10 @@ def main(*args, noise_model: str) -> None:
         # if use torch.multiprocessing
         size, minibatch_size, p_depol = args
         mp.spawn(
-            depolarising_smoothedPQC_torch_parallel_job, args=(size, minibatch_size, p_depol), nprocs=size, join=True
+            depolarising_smoothedPQC_torch_parallel_job, 
+            args=(size, minibatch_size, p_depol), 
+            nprocs=size, 
+            join=True
         )
         
         #if use torchrun

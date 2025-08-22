@@ -78,28 +78,24 @@ class ProbCancellationModel(nn.Module):
             
             @qml.for_loop(0, self.num_qubits, 2)
             def entangling_gate_even_qubits(qubit):
-                qml.IsingXX(phi=np.pi, wires=[qubit, (qubit+1)%self.num_qubits])
+                qml.IsingXX(phi=np.pi/2, wires=[qubit, (qubit+1)%self.num_qubits])
             
             @qml.for_loop(1, self.num_qubits, 2)
             def entangling_gate_odd_qubits(qubit):
-                qml.IsingXX(phi=np.pi, wires=[qubit, (qubit+1)%self.num_qubits])
-            
-            @qml.for_loop(self.num_qubits)
-            def single_qubit_rotation(qubit, layer, weights):
-                qml.RZ(weights[layer*3, qubit], wires=qubit)
-                qml.RY(weights[layer*3+1, qubit], wires=qubit)
-                qml.RZ(weights[layer*3+2, qubit], wires=qubit)
-            
-            @qml.for_loop(int(weights.shape[0]/3) - 1)
-            def QVC_layer(layer, weights):
-                single_qubit_rotation(layer, weights)
-                entangling_gate_even_qubits()
-                entangling_gate_odd_qubits()
-                    
-            QVC_layer(weights)
-            single_qubit_rotation(weights.shape[0]/3 - 1, weights)
-            
-                    
+                qml.IsingXX(phi=np.pi/2, wires=[qubit, (qubit+1)%self.num_qubits])
+                        
+            num_layers = int(weights.shape[0]/3)
+            for layer in range(num_layers):
+                @qml.for_loop(0, self.num_qubits)
+                def single_qubit_rotation(qubit):
+                    qml.RZ(weights[layer*3, qubit], wires=qubit)
+                    qml.RY(weights[layer*3+1, qubit], wires=qubit)
+                    qml.RZ(weights[layer*3+2, qubit], wires=qubit)
+                
+                single_qubit_rotation()
+                if layer < weights.shape[0]/3 - 1:
+                    entangling_gate_even_qubits()
+                    entangling_gate_odd_qubits()
 
             return [qml.expval(qml.PauliZ(wires=q)) for q in range(self.num_qubits)]
             
