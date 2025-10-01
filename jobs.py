@@ -7,6 +7,7 @@ import torch.optim as optim
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torchvision import datasets, transforms
+from custom_datasets import CustomWaveDataset, CustomFFTInputs
 from torch.utils.data import DataLoader, Subset
 from torch.utils.data.distributed import DistributedSampler
 from qml_modules import HybridModel
@@ -17,6 +18,307 @@ from multiprocessing import Pool
 from mpi4py import MPI
 
 
+def fourier_analysis_torch_parallel_job(rank: int, 
+                                        size: int, 
+                                        epoch_size: int,
+                                        batch_size: int, 
+                                        minibatch_size: int,
+                                        test_size: int,
+                                        num_qubits: int,
+                                        p_depolarising_idx: int, 
+                                        spectrum_size: int, 
+                                        fft_density: int,
+                                        noise_std: float,
+                                        learning_rate: float) -> None:
+    """
+    Like depolarising_cpu_parallel_job, but uses torch.distributed for parallelisation within each batch.
+    """
+    dist.init_process_group(backend="nccl", rank=rank, world_size=size, init_method='env://')
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu", rank)
+    torch.cuda.set_device(rank)
+    #device = torch.device("cpu")
+    
+    if rank == 0:
+        print(f"Using device: {device}", flush=True)
+    
+    #epoch_size = 100000
+    #batch_size = 100
+    #test_size = 500
+    #num_qubits = 1
+    #spectrum_size = 10
+    
+    transform = transforms.Compose([
+        #transforms.Resize((32, 32)),
+        #transforms.ToTensor(),
+        transforms.Lambda(lambda x: torch.from_numpy(x).float()),
+        #transforms.Lambda(lambda x: x.flatten()),
+        #transforms.Lambda(lambda x: x / torch.norm(x)),
+        transforms.Lambda(lambda x: x.to(device))
+    ])
+    
+    if rank == 0:
+        total_dataset = CustomWaveDataset(input_dim=num_qubits, spectrum_size=spectrum_size, num_samples_train=epoch_size, num_samples_test=test_size, noise_std=noise_std, transform=transform)
+    dist.barrier(device_ids=[rank])
+    
+    total_dataset = CustomWaveDataset(input_dim=num_qubits, spectrum_size=spectrum_size, num_samples_train=epoch_size, num_samples_test=test_size, noise_std=noise_std, transform=transform)
+    
+    #if rank == 0:
+    #    subset = Subset(total_dataset, indices=range(0,2000))
+    #    loader = DataLoader(subset, batch_size=2000, shuffle=True)
+    #    for _, (x, y) in enumerate(loader):
+    #        training_data = {'data': torch.flatten(x).cpu().numpy(), 'target': torch.flatten(y).cpu().numpy()}
+    #        with open(f'temp/training_function.pkl', 'wb') as file:
+    #            pickle.dump(training_data, file, protocol=pickle.HIGHEST_PROTOCOL)
+                
+    #fft_inputs_dataset = CustomFFTInputs(input_dim=num_qubits, fft_density=fft_density, transform=transform)
+    #test_dataset = CustomWaveDataset(input_dim=num_qubits, spectrum_size=spectrum_size, num_samples=test_size, noise_std=0, transform=transform)
+    
+    depolarising_rates = np.logspace(-5,np.log10(3/4),10)
+
+    print(p_depolarising_idx, flush=True)
+    
+    if p_depolarising_idx == -1:
+        p_depolarising = 0
+    else:
+        p_depolarising = depolarising_rates[p_depolarising_idx]
+        
+    if p_depolarising == 0:
+        #try:
+        #    # Try to use GPU simulator
+        #    dev = qml.device("lightning.gpu", wires=num_qubits)
+        #    print("Using lightning.gpu quantum simulator", flush=True)
+        #except:
+        #    #Fallback to CPU with GPU classical components
+        dev = qml.device("default.qubit", wires=num_qubits)
+        if rank == 0:
+            print("Using default.qubit simulator - install lightning.gpu for GPU acceleration", flush=True)
+    
+    else:
+        dev = qml.device("default.mixed", wires=num_qubits)
+        if rank == 0:
+            print("Using default.mixed simulator - install lightning.gpu for GPU acceleration", flush=True)
+            
+            
+    layers = spectrum_size + 1
+    weight_shapes = {"weights": (int(layers*3*2), num_qubits)}
+    
+    if rank == 0:
+        print(f'depolarising noise rate: {p_depolarising}', flush=True)
+    
+    if p_depolarising == 0:
+        model = HybridModel(dev=dev, 
+                            device=device, 
+                            num_qubits=num_qubits, 
+                            weight_shapes=weight_shapes, 
+                            noise_model=None, 
+                            repeated_encoding=True).to(device)
+    else:
+        model = HybridModel(dev=dev, 
+                            device=device, 
+                            num_qubits=num_qubits, 
+                            weight_shapes=weight_shapes, 
+                            noise_model='depolarising',
+                            p_depolarising=p_depolarising,
+                            repeated_encoding=True).to(device)
+        
+    model = DDP(model, device_ids=[rank])
+    
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    
+    
+    results = {}
+    test_loss_values = {}
+    training_samples = [0]
+    loss_values = []
+    gradients_list = []
+    frequencies_list = []
+    fitting_data_list = []
+    trained_samples = 0
+
+    
+    #for batch_idx, (data, target) in enumerate(train_loader):
+    for batch_idx in range(epoch_size//batch_size):
+        
+        train_subset = Subset(total_dataset, indices=range(batch_idx*batch_size, (batch_idx+1)*batch_size))
+        train_sampler = DistributedSampler(train_subset, num_replicas=size, rank=rank)
+        train_loader = DataLoader(train_subset, batch_size=minibatch_size, shuffle=False, sampler=train_sampler)
+        
+        total_loss = 0
+        for minibatch_idx, (data, target) in enumerate(train_loader):
+            model.train()
+            data = data.to(device)
+            target = target.to(device)
+
+            optimizer.zero_grad()
+            loss = process_minibatch(model, data, target, batch_size, minibatch_size, criterion)
+            total_loss += loss
+
+            trained_samples += len(data)*size
+            if rank == 0:
+                print(f'trained samples {trained_samples}', flush=True)
+                
+        total_loss = torch.tensor(total_loss, device=device)
+        dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
+        total_loss = total_loss.item()
+        
+        optimizer.step()
+        
+        if rank == 0:
+            print(f'Batch {batch_idx}, trained samples {trained_samples}, Total Loss: {total_loss:.4f}', flush=True)
+            #gradients_linear_weights = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            #gradients_linear_offsets = optimizer.param_groups[0]['params'][1].grad.data.cpu().numpy()
+            #gradients_quantum = optimizer.param_groups[0]['params'][2].grad.data.cpu().numpy()
+            #gradients_list.append({'linear weights': gradients_linear_weights,
+            #                        'linear offsets': gradients_linear_offsets,
+            #                        'quantum': gradients_quantum}
+            #                        )
+            gradients_quantum = optimizer.param_groups[0]['params'][0].grad.data.cpu().numpy()
+            gradients_list.append({'quantum': gradients_quantum})
+            
+            loss_values.append(total_loss)
+            training_samples.append(training_samples[-1] + batch_size)
+            
+        #homogeneous_inputs_generators = [torch.linspace(0, 2*np.pi, fft_density, device=device) for _ in range(num_qubits)]
+        #homogeneous_inputs = torch.cartesian_prod(*homogeneous_inputs_generators)
+        
+        #model.eval()
+        #with torch.no_grad():
+        #    
+        #    fft_inputs_sampler = DistributedSampler(fft_inputs_dataset, num_replicas=size, rank=rank)
+        #    fft_inputs_loader = DataLoader(fft_inputs_dataset, batch_size=minibatch_size, shuffle=False, sampler=fft_inputs_sampler)
+        #    
+        #    current_rank_inputs = []
+        #    current_rank_outputs = []
+        #    for input_idx, input in enumerate(fft_inputs_loader):
+        #        input = input.to(device)
+        #        output = model(input)
+        #        current_rank_inputs.append(input)
+        #        current_rank_outputs.append(output)
+        #    current_rank_inputs = torch.cat(current_rank_inputs)
+        #    current_rank_outputs = torch.cat(current_rank_outputs)
+        #    
+        #    #current_rank_inputs = homogeneous_inputs[rank::size].to(device)
+        #    #current_rank_outputs = model(current_rank_inputs)### need to be revised for single-value output instead of a prob vector
+        #    
+        #    total_inputs = [torch.empty_like(current_rank_inputs) for _ in range(size)]
+        #    dist.all_gather(total_inputs, current_rank_inputs)
+        #    total_inputs = torch.cat(total_inputs, dim=0)
+#
+        #    total_outputs = [torch.empty_like(current_rank_outputs) for _ in range(size)]
+        #    dist.all_gather(total_outputs, current_rank_outputs)
+        #    total_outputs = torch.cat(total_outputs, dim=0)
+#
+        #    if rank == 0:
+        #        outputs_sorted = torch.zeros([fft_density*fft_inputs_dataset.sampling_overhead_multiplier]*num_qubits, device=device)
+        #        for location, output in zip(total_inputs, total_outputs):
+        #            indices_float = (location*(fft_density-1)/(2*np.pi)).tolist()
+        #            indices_int = tuple([int(x) for x in indices_float])
+        #            outputs_sorted[indices_int] = output.item()
+        #        
+        #        frequencies = torch.fft.rfftn(outputs_sorted)
+        #        frequencies_list.append(frequencies.cpu().numpy())
+        
+        
+        model.eval()
+        with torch.no_grad():
+            if rank == 0:
+                coefficients = qml.fourier.coefficients(f = model.module.quantum_forward, 
+                                                        n_inputs = num_qubits, 
+                                                        degree = spectrum_size-1,
+                                                        #lowpass_filter = True,
+                                                        #filter_threshold = spectrum_size-1
+                                                        )
+                frequencies_list.append(coefficients)
+        
+
+        if batch_idx % 4 == 0:
+            model.eval()
+                        
+            with torch.no_grad():
+                test_subset = Subset(total_dataset, indices=range(epoch_size, epoch_size+test_size))
+                
+                test_MSE = 0
+                fitting_data = []
+                fitting_output = []
+                
+                test_sampler = DistributedSampler(test_subset, num_replicas=size, rank=rank)
+                test_loader = DataLoader(test_subset, batch_size=minibatch_size, shuffle=False, sampler=test_sampler)
+                for test_idx, (data_, target_) in enumerate(test_loader):
+                    data_ = data_.to(device)
+                    target_ = target_.to(device)
+                    output = model(data_)
+                    
+                    #MSE = process_minibatch(model, data_, target_, test_size, minibatch_size, criterion, backpropagate=False)
+                    MSE = criterion(output, target_)/batch_size*len(data_)
+                    test_MSE += MSE
+                    
+                    fitting_data.append(data_)
+                    fitting_output.append(output)
+                    if rank == 0:
+                        print(f'samples tested: {test_idx*minibatch_size*size}', flush=True)
+                
+                test_MSE = torch.tensor(test_MSE, device=device)
+                dist.all_reduce(test_MSE, op=dist.ReduceOp.SUM)
+                test_MSE = test_MSE.item()
+                
+                if rank == 0:
+                    print(f'Test MSE: {test_MSE:.5f}\n', flush=True)
+                    test_loss_values[trained_samples] = test_MSE
+                
+                fitting_data = torch.cat(fitting_data)
+                fitting_output = torch.cat(fitting_output)
+                
+                total_fitting_data = [torch.empty_like(fitting_data) for _ in range(size)]
+                dist.all_gather(total_fitting_data, fitting_data)
+                total_fitting_data = torch.cat(total_fitting_data, dim=0)
+                total_fitting_data = total_fitting_data.cpu().numpy()
+
+                total_fitting_output = [torch.empty_like(fitting_output) for _ in range(size)]
+                dist.all_gather(total_fitting_output, fitting_output)
+                total_fitting_output = torch.cat(total_fitting_output, dim=0)
+                total_fitting_output = total_fitting_output.cpu().numpy()
+                
+                if rank == 0:
+                    fitting_data = {'data': total_fitting_data, 'target': total_fitting_output}
+                    fitting_data_list.append(fitting_data)
+                
+                #if batch_idx == 996 and rank == 0:
+                #    current_model_quantum_weights = list(model.module.quantum.parameters())[0].detach().cpu().numpy()
+                #    print("Current model parameters shape:", current_model_quantum_weights.shape)
+                #    current_model_quantum_weights = current_model_quantum_weights.reshape(layers, 6, num_qubits)
+                #    print("Analytic fourier model parameters shape:", current_model_quantum_weights.shape)
+                #
+                #    encoding = partial(EncodingLayer, n_qubits=num_qubits)
+                #    analytic_fourier_model = Model(
+                #        n_qubits = num_qubits,
+                #        n_layers = spectrum_size,
+                #        circuit_type = VariationalLayer,
+                #        data_reupload = True,  # Re-upload data at each layer
+                #        encoding = encoding,
+                #        output_qubit = 0, 
+                #        #params = current_model_quantum_weights#, dtype=torch.float32, requires_grad=True)
+                #        )
+                #    analytic_fourier_model.params = torch.tensor(current_model_quantum_weights, dtype=torch.float32, requires_grad=True)
+                #    print(analytic_fourier_model.params.shape)
+                #    
+                #    fourier_tree = FourierTree(analytic_fourier_model)
+                #    an_coeffs, an_freqs = fourier_tree.get_spectrum(force_mean=True)
+                #    print("Analytic Fourier Coefficients:", an_coeffs)
+                #    print("Analytic Fourier Frequencies:", an_freqs)
+
+    if rank == 0:
+        print(f'trained samples: {trained_samples}', flush=True)
+        results['training samples'] = training_samples[1:]
+        results['test loss values'] = test_loss_values
+        results['loss values'] = loss_values
+        results['gradients'] = gradients_list
+        results['frequencies'] = frequencies_list
+        results['fitting data'] = fitting_data_list
+        with open(f'noisy_QNN_test/repeated_angle_encoding_QVC{layers}_{num_qubits}q_{batch_size}batch_{epoch_size}epoch_{learning_rate}lr_depol{p_depolarising_idx}_smoothedPQC_gpu_torch.pkl', 'wb') as file:
+            pickle.dump(results, file, protocol=pickle.HIGHEST_PROTOCOL)
+    return
 
 def depolarising_smoothedPQC_torch_parallel_job(rank: int, size: int, minibatch_size: int, p_depolarising: float) -> None:
     """

@@ -92,7 +92,13 @@ class HybridModel(nn.Module):
         sigmoid_activation: A custom sigmoid activation function with adjustable dilation and vertical translation.
     """
     
-    def __init__(self, dev, device: torch.device, num_qubits: int, weight_shapes: dict[str, tuple], noise_model: Union[str, None] = None, **kwargs):
+    def __init__(self, 
+                 dev, 
+                 device: torch.device, 
+                 num_qubits: int, 
+                 weight_shapes: dict[str, tuple], 
+                 noise_model: Union[str, None] = None, 
+                 **kwargs):
         super().__init__()
         
         self.dev = dev
@@ -186,11 +192,102 @@ class HybridModel(nn.Module):
             # Return measurements for all batches
             #print(qml.state())
             return [qml.expval(qml.PauliZ(wires=q)) for q in range(self.num_qubits)]
-            
+
             #return [qml.probs(op=qml.PauliZ(wires=q)) for q in range(self.num_qubits)]
             
             #return [qml.expval(qml.Hermitian(ZZ, wires=[q,q])) for q in range(num_qubits)]
         
+        
+        @qml.qnode(dev)#, interface='torch')#,diff_method="adjoint")
+        def repeated_encoding_circuit(inputs, weights):
+            """Quantum circuit with amplitude encoding"""
+            # Amplitude encoding (critical change)
+            #qml.AmplitudeEmbedding(
+            #    features=inputs,
+            #    wires=range(self.num_qubits),
+            #    normalize=True  # Already normalized in preprocessing
+            #)
+            
+            #coeffs_real = inputs[:,::2]
+            #coeffs_imag = inputs[:,1::2]
+            #coeffs = coeffs_real + 1j*coeffs_imag
+            
+            if self.num_qubits >= 2:
+                @qml.for_loop(0, self.num_qubits, 2)
+                def entangling_gate_even_qubits(qubit):
+                    qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
+            else:
+                def entangling_gate_even_qubits(qubit):
+                    pass
+            
+            if self.num_qubits > 2:
+                @qml.for_loop(1, self.num_qubits, 2)
+                def entangling_gate_odd_qubits(qubit):
+                    qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
+            else:
+                def entangling_gate_odd_qubits(qubit):
+                    pass
+            
+            
+            @qml.for_loop(0, self.num_qubits)
+            def single_qubit_rotation_1(qubit):
+                qml.RZ(weights[0, qubit], wires=qubit)
+                qml.RY(weights[1, qubit], wires=qubit)
+                qml.RZ(weights[2, qubit], wires=qubit)
+            
+            @qml.for_loop(0, self.num_qubits)
+            def single_qubit_rotation_2(qubit):
+                qml.RZ(weights[3, qubit], wires=qubit)
+                qml.RY(weights[4, qubit], wires=qubit)
+                qml.RZ(weights[5, qubit], wires=qubit)
+                
+            single_qubit_rotation_1()
+            if self.num_qubits >= 2:
+                entangling_gate_even_qubits()
+            if self.num_qubits > 2:
+                entangling_gate_odd_qubits()
+            single_qubit_rotation_2()
+            if self.num_qubits >= 2:
+                entangling_gate_even_qubits()
+            if self.num_qubits > 2:
+                entangling_gate_odd_qubits()
+                
+            num_layers = int(weights.shape[0]/3/2)
+            for layer in range(1, num_layers):
+                
+                qml.AngleEmbedding(
+                features=inputs,
+                wires=range(self.num_qubits),
+                rotation='X',
+                )
+                
+                @qml.for_loop(0, self.num_qubits)
+                def single_qubit_rotation_1(qubit):
+                    qml.RZ(weights[2*layer*3, qubit], wires=qubit)
+                    qml.RY(weights[2*layer*3+1, qubit], wires=qubit)
+                    qml.RZ(weights[2*layer*3+2, qubit], wires=qubit)
+                
+                @qml.for_loop(0, self.num_qubits)
+                def single_qubit_rotation_2(qubit):
+                    qml.RZ(weights[2*layer*3+3, qubit], wires=qubit)
+                    qml.RY(weights[2*layer*3+4, qubit], wires=qubit)
+                    qml.RZ(weights[2*layer*3+5, qubit], wires=qubit)
+                    
+                single_qubit_rotation_1()
+                if self.num_qubits >= 2:
+                    entangling_gate_even_qubits()
+                if self.num_qubits > 2:
+                    entangling_gate_odd_qubits()
+                single_qubit_rotation_2()
+                if self.num_qubits >= 2:
+                    entangling_gate_even_qubits()
+                if self.num_qubits > 2:
+                    entangling_gate_odd_qubits()
+            
+            # Return measurements for all batches
+            #print(qml.state())
+            return [qml.expval(qml.PauliZ(wires=0))]
+            
         
         for var_name, var_value in kwargs.items():
             setattr(self, var_name, var_value)
@@ -256,14 +353,33 @@ class HybridModel(nn.Module):
                 
         
         if noise_model is not None:
-            quantum_circuit = qml.add_noise(quantum_circuit, noise_model=noise_model)
+            if 'repeated_encoding' in kwargs:
+                quantum_circuit = qml.add_noise(repeated_encoding_circuit, noise_model=noise_model)
+            else:
+                quantum_circuit = qml.add_noise(quantum_circuit, noise_model=noise_model)
             #print(quantum_circuit)
         
-        self.qnode_test = quantum_circuit
-        self.quantum = qml.qnn.TorchLayer(quantum_circuit, weight_shapes)
+        if 'repeated_encoding' in kwargs:
+            print('using repeated encoding circuit')
+            self.qnode_test = repeated_encoding_circuit
+            self.quantum = qml.qnn.TorchLayer(repeated_encoding_circuit, weight_shapes)
+        else:
+            print('using normal circuit')
+            self.qnode_test = quantum_circuit
+            self.quantum = qml.qnn.TorchLayer(quantum_circuit, weight_shapes)
+        
         #self.lanczos_expand = post_process()
         #self.classical = nn.Linear(num_qubits, 10)#.to(device)  # 8 quantum outputs -> 10 classes
-        
+    
+    @property
+    def device(self):
+        return self._device
+    
+    @device.setter
+    def device(self, new_value):
+        if not isinstance(new_value, torch.device):
+            raise ValueError("device must be a torch.device")
+        self._device = new_value
         
         
     def forward(self, x):
@@ -289,6 +405,12 @@ class HybridModel(nn.Module):
         
         #return self.quantum(x)
         #return self.sigmoid_activation(x)
+    
+    def quantum_forward(self, x):
+        if isinstance(x, np.ndarray):
+            x = torch.from_numpy(x).float()
+        return self.quantum(x).item()
+    
     
     def gen_depolarising_noise(self, single_qubit_only: bool|str = True, **kwargs) -> qml.NoiseModel:
         

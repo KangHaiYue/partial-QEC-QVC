@@ -5,8 +5,10 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10.4"
 dependencies = [
+    "matplotlib>=3.8.4",
     "numpy==1.22.3",
     "pennylane==0.40.0",
+    "qml-essentials>=0.1.36",
     "torch==2.1.2",
     "torchvision>=0.16.2",
 ]
