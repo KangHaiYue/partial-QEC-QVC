@@ -110,7 +110,7 @@ class CustomWaveDataset(Dataset):
                     # Reshape c to multi-dimensional array
                     c = c.reshape([spectrum_size*2-1]*input_dim)
                     
-                with open(f'temp/original_fourier_coeff_{input_dim}_{spectrum_size}_{num_samples_train}_{num_samples_test}_{noise_std}.pkl', 'wb') as file:
+                with open(f'{root}/original_fourier_coeff_{input_dim}_{spectrum_size}_{num_samples_train}_{num_samples_test}_{noise_std}.pkl', 'wb') as file:
                     pickle.dump(c, file, protocol=pickle.HIGHEST_PROTOCOL)
                     
                 np.savez(self.data_file, x=x, y=y)

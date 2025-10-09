@@ -287,7 +287,79 @@ class HybridModel(nn.Module):
             # Return measurements for all batches
             #print(qml.state())
             return [qml.expval(qml.PauliZ(wires=0))]
+        
+        @qml.qnode(dev)
+        def angle_embedding_vqc(inputs, weights):
+            """Quantum circuit with amplitude encoding"""
             
+            @qml.for_loop(0, self.num_qubits)
+            def parllel_angle_embedding(qubit):
+                qml.AngleEmbedding(
+                    features=inputs,
+                    wires=[qubit],
+                    rotation='X',
+                    )
+            
+            @qml.for_loop(0, self.num_qubits, 2)
+            def entangling_gate_even_qubits(qubit):
+                qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
+
+            @qml.for_loop(1, self.num_qubits, 2)
+            def entangling_gate_odd_qubits(qubit):
+                qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
+
+            
+            num_layers = int(weights.shape[0]/3)
+            for layer in range(num_layers):
+                @qml.for_loop(0, self.num_qubits)
+                def single_qubit_rotation(qubit):
+                    qml.RZ(weights[layer*3, qubit], wires=qubit)
+                    qml.RY(weights[layer*3+1, qubit], wires=qubit)
+                    qml.RZ(weights[layer*3+2, qubit], wires=qubit)
+                
+                single_qubit_rotation()
+                entangling_gate_even_qubits()
+                entangling_gate_odd_qubits()
+                
+                if layer == 49:
+                    parllel_angle_embedding()
+
+            return [qml.expval(qml.PauliZ(wires=0))]
+        
+        @qml.qnode(dev)
+        def repeated_amplitude_embedding_vqc(inputs, weights):
+            """Quantum circuit with amplitude encoding"""
+                        
+            @qml.for_loop(0, self.num_qubits, 2)
+            def entangling_gate_even_qubits(qubit):
+                qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
+
+            @qml.for_loop(1, self.num_qubits, 2)
+            def entangling_gate_odd_qubits(qubit):
+                qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
+
+            
+            num_layers = int(weights.shape[0]/3)
+            for layer in range(num_layers):
+                @qml.for_loop(0, self.num_qubits)
+                def single_qubit_rotation(qubit):
+                    qml.RZ(weights[layer*3, qubit], wires=qubit)
+                    qml.RY(weights[layer*3+1, qubit], wires=qubit)
+                    qml.RZ(weights[layer*3+2, qubit], wires=qubit)
+                
+                single_qubit_rotation()
+                entangling_gate_even_qubits()
+                entangling_gate_odd_qubits()
+                
+                if layer % 10 == 0:
+                    qml.StatePrep(
+                        state=inputs,
+                        wires=range(self.num_qubits),
+                        normalize=True
+                        )
+
+            return [qml.expval(qml.PauliZ(wires=0))]
+        
         
         for var_name, var_value in kwargs.items():
             setattr(self, var_name, var_value)
@@ -354,15 +426,26 @@ class HybridModel(nn.Module):
         
         if noise_model is not None:
             if 'repeated_encoding' in kwargs:
-                quantum_circuit = qml.add_noise(repeated_encoding_circuit, noise_model=noise_model)
+                repeated_encoding_circuit = qml.add_noise(repeated_encoding_circuit, noise_model=noise_model)
+            elif 'single_parallel_repeated_encoding' in kwargs:
+                angle_embedding_vqc = qml.add_noise(angle_embedding_vqc, noise_model=noise_model)
+            elif 'repeated_amplitude_embedding' in kwargs:
+                repeated_amplitude_embedding_vqc = qml.add_noise(repeated_amplitude_embedding_vqc, noise_model=noise_model)
             else:
                 quantum_circuit = qml.add_noise(quantum_circuit, noise_model=noise_model)
-            #print(quantum_circuit)
         
         if 'repeated_encoding' in kwargs:
             print('using repeated encoding circuit')
             self.qnode_test = repeated_encoding_circuit
             self.quantum = qml.qnn.TorchLayer(repeated_encoding_circuit, weight_shapes)
+        elif 'single_parallel_repeated_encoding' in kwargs:
+            print('using single qubit parallel angle embedding circuit')
+            self.qnode_test = angle_embedding_vqc
+            self.quantum = qml.qnn.TorchLayer(angle_embedding_vqc, weight_shapes)
+        elif 'repeated_amplitude_embedding' in kwargs:
+            print('using repeated amplitude embedding circuit')
+            self.qnode_test = repeated_amplitude_embedding_vqc
+            self.quantum = qml.qnn.TorchLayer(repeated_amplitude_embedding_vqc, weight_shapes)
         else:
             print('using normal circuit')
             self.qnode_test = quantum_circuit
