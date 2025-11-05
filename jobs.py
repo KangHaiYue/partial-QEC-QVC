@@ -52,13 +52,13 @@ def fourier_analysis_single_amplitude_encoding_VQC(rank: int,
         transforms.Lambda(lambda x: x.to(device))
     ])
     
-    transform = transforms.Compose([
-        transforms.Resize((input_dim/2, input_dim/2)),
-        transforms.ToTensor(),
-        transforms.Lambda(lambda x: x.flatten()),
-        transforms.Lambda(lambda x: x / torch.norm(x)),
-        transforms.Lambda(lambda x: x.to(device))
-    ])
+    #transform = transforms.Compose([
+    #    transforms.Resize(input_dim),
+    #    transforms.ToTensor(),
+    #    transforms.Lambda(lambda x: x.flatten()),
+    #    transforms.Lambda(lambda x: x / torch.norm(x)),
+    #    transforms.Lambda(lambda x: x.to(device))
+    #])
     
     
     if rank == 0:
