@@ -157,18 +157,18 @@ class HybridModel(nn.Module):
             #        
             #    # Entanglement remains the same across batches
             #    for qubit in range(0, self.num_qubits, 2):
-            #        qml.CNOT(wires=[qubit, (qubit+1)%self.num_qubits])
+            #        qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
             #    
             #    for qubit in range(1, self.num_qubits, 2):
-            #        qml.CNOT(wires=[qubit, (qubit+1)%self.num_qubits])
+            #        qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
             
             @qml.for_loop(0, self.num_qubits, 2)
             def entangling_gate_even_qubits(qubit):
-                qml.CNOT(wires=[qubit, (qubit+1)%self.num_qubits])
+                qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
 
             @qml.for_loop(1, self.num_qubits, 2)
             def entangling_gate_odd_qubits(qubit):
-                qml.CNOT(wires=[qubit, (qubit+1)%self.num_qubits])
+                qml.CZ(wires=[qubit, (qubit+1)%self.num_qubits])
 
             
             num_layers = int(weights.shape[0]/3)
@@ -294,7 +294,7 @@ class HybridModel(nn.Module):
         
         @qml.BooleanFn
         def single_qubit_ops_condition(op):
-            #return isinstance(op, qml.RX) or isinstance(op, qml.RY) or isinstance(op, qml.RZ)# or isinstance(op, qml.CNOT)
+            #return isinstance(op, qml.RX) or isinstance(op, qml.RY) or isinstance(op, qml.RZ)# or isinstance(op, qml.CZ)
             return isinstance(op, qml.RY)
         
         depol_err_single = qml.noise.partial_wires(qml.DepolarizingChannel, kwargs['p_depolarising'])
@@ -318,7 +318,7 @@ class HybridModel(nn.Module):
         
         @qml.BooleanFn
         def two_qubit_ops_condition(op):
-            return isinstance(op, qml.CNOT)
+            return isinstance(op, qml.CZ)
         
         def two_qubit_noise(op, **params):
             #ZZ_channel = np.sqrt(params['p_ZZ'])*qml.IsingZZ.compute_matrix(params['phi_ZZ'])
@@ -420,10 +420,10 @@ class HybridModel(nn.Module):
         
         @qml.BooleanFn
         def single_qubit_ops_condition(op):
-            #return isinstance(op, qml.RX) or isinstance(op, qml.RY) or isinstance(op, qml.RZ)# or isinstance(op, qml.CNOT)
+            #return isinstance(op, qml.RX) or isinstance(op, qml.RY) or isinstance(op, qml.RZ)# or isinstance(op, qml.CZ)
             return isinstance(op, qml.RY)
         
-        #two_qubit_ops_condition = qml.noise.op_eq(qml.CNOT)
+        #two_qubit_ops_condition = qml.noise.op_eq(qml.CZ)
         
         #E0 = np.sqrt(1-kwargs['pX_single']-kwargs['pY_single']-kwargs['pZ_single'])*qml.Identity.compute_matrix()
         #E1 = np.sqrt(kwargs['pX_single'])*qml.PauliX.compute_matrix()
@@ -459,7 +459,7 @@ class HybridModel(nn.Module):
         @qml.BooleanFn
         def single_qubit_ops_condition(op):
             #return isinstance(op, qml.Rot)
-            return isinstance(op, qml.RX) or isinstance(op, qml.RY) or isinstance(op, qml.RZ)# or isinstance(op, qml.CNOT)
+            return isinstance(op, qml.RX) or isinstance(op, qml.RY) or isinstance(op, qml.RZ)# or isinstance(op, qml.CZ)
         
         def gaussian_rotation(op, **distribution_params):
             sigma = distribution_params['sigma']
@@ -592,7 +592,7 @@ class HybridModel(nn.Module):
     
     def gen_always_on_noise(self, **kwargs) -> qml.NoiseModel:
         
-        condition = qml.noise.op_eq(qml.CNOT)
+        condition = qml.noise.op_eq(qml.CZ)
         
         def always_on_Z_and_ZZ(op, **noise_params):
             #qml.apply(op)
