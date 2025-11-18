@@ -87,3 +87,6 @@ if __name__ == "__main__":
     size = 2
     p_depol = 0.01
     main(size, p_depol, noise_model='smoothedPQC depolarising torch parallel')
+    
+    
+    
